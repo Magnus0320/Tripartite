@@ -1,8 +1,9 @@
-ARCHITECTURE.md · v0.2 · 2026-09-22
+ARCHITECTURE.md · v0.3 · 2026-09-23
 
 # Changelog
 
-- v0.2 (2026-09-22): user decisions recorded. D4 and D5 approved. D6 approved on condition that A-009 holds, and M4 is now gated on A-009 (D9 build order). Open question 4 (extra temperature-0 pass) declined. Licence MIT (open question 5; public/private still open). Open questions 6 and 7 unchanged in substance: R3 stays at ±2.0 pp, and A-016 remains the trigger to revisit it. NEEDS APPROVAL markers removed and Open questions updated. Fix: the tokenizer-agreement check and the truncation post-check assumed uncached calls, but every planner prompt shares the official instruction and example before `{text}`, so later calls hit the prompt cache. Both checks are redesigned in D4 around a Phase 0 calibration (`tripartite model calibrate`, run by `make measure-context`), cold probes made uncached by unloading the model, a unique-nonce warm-up, and a per-call bound that uses the token prefix shared with the previous prompt. Before calibration, real-model runs refuse to start. The measure-context row of the Makefile table, D1 Phase 0 exit item 2 and milestone M3 were updated to match. A-018–A-021 added; A-018 supersedes A-002 and A-019 supersedes A-003. Brief issues 1 and 10 no longer say "pending approval".
+- v0.3 (2026-09-23): the repository is public, its root is this project's folder, and its remote is `github.com/Magnus0320/Tripartite`; commit 8205414 holds v0.2. New §8 (repository and publication hygiene) states what is never committed and names the check that enforces it; D9's `.gitignore` and vendor lines were tightened to match, and `scripts/` was added to the tree with owners. Open question 5 is fully closed. Fix: `num_ctx` is now **fixed at 32768** rather than computed, so nothing can disagree with the running server or invalidate the calibration; `make measure-context` has an explicit two-step order, and the measurement is a pass/fail gate, not an input (D4, D1). Fix: shared files across milestones. M0 creates the empty package skeleton, every CI step and Makefile target written at M0 is guarded by the existence of its input and becomes mandatory as soon as that input exists, `scripts/vendor_check.py` is owned by the data-eval session, and "CI green at M0" is defined exactly (D9 §Shared files). The same rule, plus a list of read-only shared paths (MANIFEST, openapi.json, the calibration report, smoke-ids, the model lock, conftest), resolves the other cross-session paths found in a sweep of D9.
+- v0.2 (2026-09-22): user decisions recorded. D4 and D5 approved. D6 approved on condition that A-009 holds, and M4 is now gated on A-009 (D9 build order). A note there lets M3 use the official prompt only for token counting and calibration probes. Open question 4 (extra temperature-0 pass) declined. Licence MIT (open question 5; public/private still open). Open questions 6 and 7 unchanged in substance: R3 stays at ±2.0 pp, and A-016 remains the trigger to revisit it. NEEDS APPROVAL markers removed and Open questions updated. Fix: the tokenizer-agreement check and the truncation post-check assumed uncached calls, but every planner prompt shares the official instruction and example before `{text}`, so later calls hit the prompt cache. Both checks are redesigned in D4 around a Phase 0 calibration (`tripartite model calibrate`, run by `make measure-context`), cold probes made uncached by unloading the model, a unique-nonce warm-up, and a per-call bound that uses the token prefix shared with the previous prompt. Before calibration, real-model runs refuse to start. The measure-context row of the Makefile table, D1 Phase 0 exit item 2 and milestone M3 were updated to match. A-018–A-021 added; A-018 supersedes A-002 and A-019 supersedes A-003. Brief issues 1 and 10 no longer say "pending approval".
 - v0.1 (2026-09-22): initial. Covers Phases 0 and 1 in full. Later phases appear only as named seams.
 
 # 0. How to use this document
@@ -85,7 +86,7 @@ Corrections to the facts supplied with the request:
 
 ### Phase 0 exit (all must hold)
 1. `make setup && make data && make doctor` succeed on the M4 Pro.
-2. `make measure-context` writes `reports/context_report.json` covering all 180 validation queries (schema in D4). The max of `prompt_tokens + num_predict` is at most the configured `num_ctx`. It also writes a valid `reports/token_calibration.json` (D4 §Token calibration), with tokenizer agreement passed on every cold probe and a classified cache mode.
+2. `make measure-context` runs its two steps in order (D4 §Context measurement). Step 1 writes `reports/context_report.json` for all 180 validation queries and **fails** unless `max(prompt_tokens) + num_predict + 256 ≤ 32768`. Step 2 writes a valid `reports/token_calibration.json` (D4 §Token calibration), with tokenizer agreement passed on every cold probe and a classified cache mode.
 3. `make baseline-smoke` exits 0. It runs `make baseline CONFIG=configs/smoke.yaml`: **9 queries × 3 seeds (0, 1, 2) = 27 calls**. The 9 queries are one per (level × days) cell (easy/medium/hard × 3/5/7). Each is the lowest-index query in its cell. The data-eval session provides `tripartite eval smoke-ids`, which computes them from the EvalRecords and prints them. The model session commits its output as explicit `query_ids` in `configs/smoke.yaml`. Selecting on `level`/`days` is an evaluator-side act done once, offline; the planner never sees those fields.
 4. The smoke run directory contains every artifact listed in D7 §Run directory, including `metrics.json` computed by the subset aggregator (D5) and flagged `"subset": true`.
 5. `make eval RUN=<smoke run>` re-scores it and produces byte-identical `metrics.json` and `per_plan_eval_seed*.jsonl` (R1 below).
@@ -106,12 +107,15 @@ Corrections to the facts supplied with the request:
 - Pins required for R1–R3 are in §6. `make doctor` MUST fail if any runtime pin differs from `configs/stack.yaml`.
 
 ### CI (GitHub Actions, ubuntu-latest; no model, no database, no HF network)
-- **python job:** uv (pinned) and Python from `.python-version`. Runs `ruff check`, `ruff format --check`, `mypy src`, `lint-imports` (import-linter contracts, D3) and `pytest -m "not local"` with `TRIPARTITE_LLM=fake` and `TRIPARTITE_EVAL_BRIDGE=fake`. Also runs:
-  - vendor integrity check: every file under `vendor/travelplanner/` matches `vendor/travelplanner/VENDOR.lock` (sha256), and nothing matching `*ref_info*` or `*.csv` is committed under `vendor/`;
-  - test-split guard tests (D3);
-  - aggregator equivalence test against committed golden output from the real evaluator (D5);
-  - OpenAPI drift check: `tripartite api export-openapi` must equal the committed `api-contract/openapi.json`.
-- **web job:** Node from `web/.nvmrc`. Runs `npm ci`, `npm run typecheck`, `npm run lint`, `npm run test` (vitest), `npm run build`, and checks that `web/src/api/types.gen.ts` matches what is generated from `api-contract/openapi.json`.
+
+The whole workflow is written once, by the foundation session at M0, and every step that depends on a path a later milestone creates is **guarded by that path's existence** (D9 §Shared files across milestones). A guarded step skips while its input is absent and is mandatory from the moment the input appears.
+
+- **python job (always runs):** uv (pinned) and Python from `.python-version`. Runs `ruff check`, `ruff format --check`, `mypy src`, `lint-imports` (import-linter contracts, D3), the repository hygiene check (§8) and `pytest -m "not local"` with `TRIPARTITE_LLM=fake` and `TRIPARTITE_EVAL_BRIDGE=fake`. Guarded steps inside this job:
+  - vendor integrity check, `python scripts/vendor_check.py` — guard: `vendor/travelplanner/VENDOR.lock` exists (M2). Every file under `vendor/travelplanner/` matches the lock (sha256), the lock lists no path matching `*ref_info*` or `*.csv`, and no such file is committed under `vendor/`;
+  - test-split guard tests (D3) — part of pytest, guard: `tests/data/test_loader_refusals.py` exists (M1);
+  - aggregator equivalence test against committed golden output from the real evaluator (D5) — part of pytest, guard: `tests/fixtures/eval_golden/` exists (M2);
+  - OpenAPI drift check — guard: `api-contract/openapi.json` exists (F1). `tripartite api export-openapi` must equal the committed file.
+- **web job:** guard: `web/package.json` exists (W1). Node from `web/.nvmrc`. Runs `npm ci`, `npm run typecheck`, `npm run lint`, `npm run test` (vitest), `npm run build`, and checks that `web/src/api/types.gen.ts` matches what is generated from `api-contract/openapi.json`.
 - **Local gate (not in CI):** tests marked `@pytest.mark.local` need Ollama and/or the database and run with `make test-local`. Any PR touching `src/tripartite/{llm,planner,parse,pipeline,evaluation}`, `evalenv/`, `vendor/` or `configs/` MUST paste the output of `make test-local` and the smoke-run `metrics.json` into the PR description. `.github/pull_request_template.md` has that checkbox.
 
 ## D2 (b). Plan parsing (local, no LLM)
@@ -186,7 +190,7 @@ def get_planner_input(query_id: str) -> PlannerInput: ...
 | Seeds | `options.seed` ∈ {0, 1, 2}; seed = replicate index |
 | Call order | **Seed-major** (all 180 queries for seed 0, then seed 1, then seed 2), in query_id order. That way consecutive calls never share a reference-info prefix in the prompt cache, and prefill timing stays comparable. |
 | num_predict | 4096 |
-| num_ctx | One value for all queries in a run. Rule: the smallest multiple of 4096 that is at least `max_prompt_tokens + num_predict + 256`, over all 180, **capped at 32768** (native context). Provisional value: 32768. If the measured maximum does not fit under the cap, stop and raise an architecture question (YaRN is not approved). |
+| num_ctx | **Fixed at 32768** (Qwen3-8B's native context) for Phase 1: in `configs/stack.yaml`, in `OLLAMA_CONTEXT_LENGTH` on the server, and in `options.num_ctx` on every request. It is a pin, not a computed value, so the server, the config and the calibration can never disagree. The measurement in `make measure-context` is a **gate**, not an input: it fails if `max(prompt_tokens) + num_predict + 256 > 32768`, and then the run stops and an architecture question is raised (YaRN is not approved). The memory budget below is sized for 32768, so a smaller value would save nothing that matters. Changing `num_ctx` later is a config change that requires restarting the server and re-running `tripartite model calibrate`; `make doctor` marks an old calibration stale until then. |
 | Server | A dedicated `ollama serve` started by `make serve-model` on `127.0.0.1:11435` with `OLLAMA_CONTEXT_LENGTH=<num_ctx>`, `OLLAMA_NUM_PARALLEL=1`, `OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_KEEP_ALIVE=-1`, `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=f16`, and the log written to `runs/ollama-server.log`. The desktop-app server on 11434 must have no model loaded; `make doctor` checks `/api/ps` and fails otherwise. |
 | API | Native `POST /api/generate` with `raw: true`, `stream: false`, `keep_alive: -1`, `options{…}` and `stop: ["<|im_end|>", "<|endoftext|>"]`. The prompt is rendered by us from the pinned HF chat template (jinja2), so our local token count covers exactly the bytes the runtime sees. The OpenAI-compatible endpoint is not used, because it drops `num_ctx`. |
 | Concurrency | 1 request at a time, system-wide. A file lock `runs/.model.lock` (filelock) is held by any process that calls the model (CLI batch or API job). |
@@ -194,7 +198,12 @@ def get_planner_input(query_id: str) -> PlannerInput: ...
 
 **Memory budget (24 GB unified, dev tools and Claude apps running).** Weights take 5.2 GB. f16 KV cache is 2 × 36 layers × 8 heads × 128 × 2 B = 147,456 B/token, which is 4.8 GB at 32,768 tokens; the compute graph adds about 1 GB. Total resident is about 11 GB (A-011). That is under the ~16 GB default GPU working-set limit (A-005) and leaves about 13 GB for macOS, IDE, browser and the Claude apps.
 
-**Context measurement (Phase 0, `make measure-context`).** Tokenizer: HF `Qwen/Qwen3-8B` `tokenizer.json` at a pinned revision, loaded with `tokenizers`. For each of the 180 queries, record `ref_tokens` (reference_information alone) and `prompt_tokens` (the full rendered raw prompt). Write `reports/context_report.json`: `{tokenizer, revision, num_predict, per_query: [{query_id, ref_chars, ref_tokens, prompt_tokens}], summary: {min, median, p95, max} for each, chosen_num_ctx}`. From the character counts in F8, the maximum should be around 15–20k tokens (A-006).
+**Context measurement (Phase 0, `make measure-context`).** The target runs exactly two commands, in this order, and stops at the first failure:
+
+1. `tripartite model measure-context` — tokenizer only, no server needed. Tokenizer: HF `Qwen/Qwen3-8B` `tokenizer.json` at the pinned revision, loaded with `tokenizers`. For each of the 180 queries, record `ref_tokens` (reference_information alone) and `prompt_tokens` (the full rendered raw prompt). Write `reports/context_report.json`: `{tokenizer, revision, num_ctx: 32768, num_predict, per_query: [{query_id, ref_chars, ref_tokens, prompt_tokens}], summary: {min, median, p95, max} for each, fits: bool, headroom_tokens}`. Exit non-zero when `fits` is false, that is when `max(prompt_tokens) + num_predict + 256 > num_ctx`. From the character counts in F8, the maximum should be around 15–20k tokens (A-006), leaving ample headroom.
+2. `tripartite model calibrate` — needs `make serve-model` running with the same pinned `num_ctx`. It refuses to run if `reports/context_report.json` is missing, if its `fits` is false, or if its `num_ctx` differs from the running server's (read from `/api/show` / the server env check in `make doctor`).
+
+Because `num_ctx` is a pin and never recomputed, no server restart happens between the two steps.
 
 **Truncation is a hard error.**
 - (1) Pre-flight: if `prompt_tokens + num_predict > num_ctx`, raise `ContextOverflowError` before calling. The run aborts; the query is never silently recorded as non-delivered.
@@ -219,6 +228,7 @@ def get_planner_input(query_id: str) -> PlannerInput: ...
      - `total`: `prompt_eval_count == prompt_tokens` on both warm probes.
      - `split`: the response has `prompt_eval_cached_count`, and `prompt_eval_count + prompt_eval_cached_count == prompt_tokens` on both warm probes.
      - `uncached_only`: there is no usable cached-count field, and on both warm probes `prompt_tokens - lcp <= prompt_eval_count < prompt_tokens`.
+   - If the mode is `uncached_only`, send (iii): the `val-009` prompt again, straight after (ii). It must satisfy `prompt_eval_count >= prompt_tokens - lcp` against (ii). This is the A-020 check; if it fails, the calibration fails.
    - Anything else fails the calibration and raises an architecture question. Do not improvise a rule.
 4. Write `reports/token_calibration.json`: `{calibrated_at, ollama_version, model_tag, model_digest, tokenizer_repo, tokenizer_revision, num_ctx, mode, probes: [{kind: "cold"|"warm", query_id, prompt_tokens, lcp, prompt_eval_count, prompt_eval_cached_count, load_ms}]}`. The model session commits it. It is **valid** only while `ollama_version`, `model_digest`, `tokenizer_revision` and `num_ctx` equal the current `configs/stack.yaml` / config values. `make doctor` reports it as missing, valid or stale.
 5. `make test-local` includes `test_tokenizer_agreement`, which re-runs only the cold probes (step 2) and asserts equality. It never inspects calls from a run.
@@ -362,6 +372,8 @@ tripartite/
 ├── reports/  (context_report.json)            model
 ├── results/phase1/<run_id>/…                  model
 ├── api-contract/openapi.json                  api
+├── scripts/vendor_check.py                    data-eval
+├── scripts/ci/repo_hygiene.py                 foundation
 ├── src/tripartite/
 │   ├── __init__.py  cli.py                    foundation
 │   ├── runlog/  (schema.py, schema.json, writer.py, reader.py, mlflow_sync.py, cli.py)   foundation
@@ -414,8 +426,19 @@ Every path belongs to exactly one session. A session MUST NOT edit another sessi
 | `mlflow-sync` | `tripartite log mlflow-sync --run $(RUN)` |
 | `mlflow-ui` | `uv run mlflow ui --backend-store-uri ./mlruns` |
 
-- `.gitignore`: `.venv/`, `evalenv/.venv/`, `data/raw/`, `data/downloads/`, `vendor/travelplanner/database/*` with `!vendor/travelplanner/database/README.md`, `runs/`, `mlruns/`, `web/node_modules/`, `web/dist/`, `*.log`.
+- `.gitignore` (the repository is public, so this is a safety boundary, not tidiness — see §8): `.venv/`, `evalenv/.venv/`, `data/*` with `!data/MANIFEST.json`, `vendor/travelplanner/database/*` with `!vendor/travelplanner/database/README.md`, `runs/`, `mlruns/`, `web/node_modules/`, `web/dist/`, `*.log`, `.env`, `.env.*`, `*.zip`. `results/` is **not** ignored: `results/phase1/<run_id>/{manifest.json,metrics.json,reproduce_check.json}` is committed on purpose, and those three files carry no plan text and no database rows.
 - `NOTICE`: TravelPlanner attribution (MIT code, CC BY 4.0 data) and Qwen3 licence reference.
+
+**Shared files across milestones.** Three paths are needed by every session but owned by one: `Makefile`, `.github/workflows/ci.yml` and `pyproject.toml` (foundation). The rule, so that no session ever edits another's path:
+
+1. **Written once, complete, at M0.** Foundation writes the final Makefile, CI workflow and dependency list from this document, covering every milestone. Nothing later is expected to change them.
+2. **Guard by existence; mandatory on appearance.** Every CI step and Makefile target whose input a later milestone creates is guarded by that path existing (`if: hashFiles('<path>') != ''` in Actions, `test -e` in the Makefile). A guarded step skips with the printed line `skipped: <path> not present yet`, and it is mandatory as soon as the path exists. Paths only ever appear, so no check can be silently switched off, and the CI summary lists what was skipped. Guarded Makefile targets are `setup` (its `npm ci --prefix web` step), `web`, `e2e-local`, `openapi`, `api`, and `serve-model` (which reads the D4 env from `configs/stack.yaml`, created at M3). A guarded step inside a larger target prints the skip line and the target continues; a guarded target invoked by name exits 1 with the same message, so a skip is never mistaken for success.
+3. **Package skeleton at M0.** Foundation creates `src/tripartite/{data,evaluation,llm,planner,parse,pipeline,api,runlog}/__init__.py` as empty files, plus empty `tests/{data,evaluation,llm,planner,parse,pipeline,api,leak}/` directories with `__init__.py`. This is a one-time creation: from that commit on, each directory including its `__init__.py` belongs to the owner named in the tree above. It exists so that `mypy` and the D3 import-linter contracts, which name these modules, resolve and run from M0 onwards.
+4. **Owner of the vendor integrity check:** the **data-eval** session owns `scripts/vendor_check.py`, together with `vendor/` and `VENDOR.lock` (M2). CI calls it as a guarded step. Foundation owns `scripts/ci/repo_hygiene.py` (§8), which always runs.
+5. **Read-only shared paths (the rest of the sweep).** These are owned by one session and consumed by another, always read-only, so nobody needs to edit another's path. The consumer treats a missing file as a clear error, never as a reason to edit: `data/MANIFEST.json` (data-eval → model's `doctor`); `api-contract/openapi.json` (api → web's type generation and the CI drift check); `reports/token_calibration.json` (model → the api job runner, D4 §Before calibration has run); the output of `tripartite eval smoke-ids` (data-eval → `configs/smoke.yaml`, committed by model, D1); and the lock file `runs/.model.lock` plus the run directory layout (D7), which the model and api sessions share by this contract rather than by shared code. `tests/conftest.py` (foundation, M0) holds only the `local` marker registration and the fake-mode environment fixtures; each session adds its own `conftest.py` inside the test package it owns.
+6. **Escape hatch.** If a session finds it needs a new dependency, Makefile target or CI step that the M0 versions cannot express as a guarded step, it does not edit those files. It writes the request under "Architecture questions" in its PR. The architecture session updates this document, and the foundation session makes the edit in its own follow-up PR.
+
+**"CI green at M0" means exactly:** `ruff check` and `ruff format --check` pass over `src/` and `tests/`; `mypy src` passes over the empty packages plus `runlog/` and `cli.py`; `lint-imports` runs every D3 contract and they hold vacuously; `pytest -m "not local"` collects and passes the runlog tests (schema round trip, writer/reader, unknown-event-type tolerance) and nothing else; `scripts/ci/repo_hygiene.py` passes; and each guarded step prints its skip line. The web job does not run, because `web/package.json` does not exist yet.
 
 **Build order** (a milestone may start when its dependencies are merged to `main`):
 
@@ -474,6 +497,22 @@ The web session never builds against mock data: every component calls an endpoin
 
 540 calls at roughly 40–60 s each (about 10k prefill tokens and about 1k generated tokens) is about 6–9 hours per full baseline (A-010). Two full runs are needed for Phase 1 exit. Runs are resumable, and the lock prevents UI jobs from interleaving.
 
+# 8. Repository and publication hygiene
+
+The repository is **public**: `github.com/Magnus0320/Tripartite`, with its root at this project's folder (`/Users/abhimanyu/Desktop/tripartite`). `ARCHITECTURE.md` and `assumptions.md` live at the repository root, as the D9 tree shows. The architecture session edits them in place; the user commits. Commit `8205414` contains v0.2.
+
+Because every push is public, and because some of this is a licence and fair-evaluation matter rather than only a privacy one, these are never committed, at any milestone:
+
+1. **Dataset files:** anything under `data/` except `data/MANIFEST.json`, which holds names, revisions and sha256 only. That covers `validation.csv`, `validation_ref_info.jsonl` and every derivative.
+2. **Any test-split artefact:** `test.csv`, `test_ref_info.jsonl`, or any path matching `*test*ref_info*`. D3 keeps them off the machine; this keeps them out of git even if one appears locally.
+3. **The sandbox database:** `data/downloads/database.zip` and everything unzipped under `vendor/travelplanner/database/` except the upstream `README.md`. It is a third-party download with its own licence (A-017), redistributed by its authors only.
+4. **Run output:** `runs/` and `mlruns/` in full — prompts, raw model output, plans, logs. Only the three small `results/phase1/<run_id>/` files are published.
+5. **Secrets:** `.env` files, API keys, tokens. The project has no API keys by design (₹0 cap, local models), so any key-shaped string in a diff is a mistake.
+
+Enforcement: the `.gitignore` in D9 covers all of the above; `scripts/ci/repo_hygiene.py` (foundation; runs on every CI run, unguarded) fails the build if any tracked file matches those patterns, if a tracked file is larger than 2 MB (lockfiles excepted), or if a tracked file matches a key-shaped pattern (`sk-`, `hf_`, `ghp_`, `AKIA`). The vendor integrity check (D9 §Shared files, item 4) additionally fails if `VENDOR.lock` lists a `*ref_info*` or `*.csv` path. D3's `test_test_split_forbidden` and `test_no_test_files_on_disk` cover the loading side.
+
+Publishing the repository changes no decision above. The prompts, the vendored evaluator (MIT, attributed in `NOTICE`) and our own code (MIT) are publishable; the data and the runs are not.
+
 # Brief issues
 
 1. **Micro vs macro.** Phase 1 lists "commonsense/hard macro pass rates" only. The official evaluator also produces micro rates, and at 8B scale macro and final rates are near 0. D5 adds micro (approved 2026-09-22).
@@ -491,9 +530,8 @@ The web session never builds against mock data: every component calls an endpoin
 # Open questions
 
 Still open:
-1. Public or private for `github.com/Magnus0320/tripartite`? (The licence is decided: MIT.)
-2. If `measure-context` shows the maximum prompt does not fit in 32768 − 4096 − 256 tokens: approve YaRN, lower `num_predict`, or exclude? The default is still to stop and ask. Nothing is excluded silently.
-3. A-009: the user will check by hand on the HF viewer whether the official prompt's example (`F3633413`, "Nagaland's Kitchen") appears in a train `annotated_plan`. No Code session downloads train.csv for this. M4 waits on the answer.
+1. If `measure-context` shows the maximum prompt does not fit in 32768 − 4096 − 256 tokens: approve YaRN, lower `num_predict`, or exclude? The default is still to stop and ask. Nothing is excluded silently.
+2. A-009: the user will check by hand on the HF viewer whether the official prompt's example (`F3633413`, "Nagaland's Kitchen") appears in a train `annotated_plan`. No Code session downloads train.csv for this. M4 waits on the answer.
 
 Resolved 2026-09-22:
 - D4 (model and serving): approved as written.
@@ -501,4 +539,9 @@ Resolved 2026-09-22:
 - D6 (official direct prompt, verbatim): approved on condition that A-009 holds.
 - Extra temperature-0 pass for comparability with published numbers: declined, not planned.
 - Repository licence: MIT (`LICENSE`, foundation session).
+
+Resolved 2026-09-23:
+- The repository is public, at `github.com/Magnus0320/Tripartite`, rooted at this project's folder. §8 states what is never committed.
+- `num_ctx` is a pin at 32768, and `make measure-context` is a gate (D4).
+- Shared files across milestones: guarded steps written once at M0, the package skeleton at M0, and `scripts/vendor_check.py` owned by data-eval (D9).
 - R3 tolerance: kept at ±2.0 pp. A-016 remains the trigger to revisit it after the first full run.
