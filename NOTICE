@@ -1,0 +1,36 @@
+Tripartite
+Copyright (c) 2026 Abhimanyu Arya
+Licensed under the MIT License (see LICENSE).
+
+This project builds on third-party work. The attributions below apply to material that is
+used by this project and, where noted, vendored into this repository.
+
+------------------------------------------------------------------------------------------
+TravelPlanner benchmark
+  Jian Xie, Kai Zhang, Jiangjie Chen, Tinghui Zhu, Renze Lou, Yuandong Tian, Yanghua Xiao
+  and Yu Su. "TravelPlanner: A Benchmark for Real-World Planning with Language Agents."
+  ICML 2024. https://osu-nlp-group.github.io/TravelPlanner/
+
+  Code: https://github.com/OSU-NLP-Group/TravelPlanner
+        at commit e52c87f4ac348a3410c46dc3553c519db5ec5e23
+        MIT License, Copyright (c) 2024 OSU Natural Language Processing.
+        Files vendored unmodified under vendor/travelplanner/ keep that licence; their
+        provenance and checksums are recorded in vendor/travelplanner/VENDOR.lock and
+        VENDOR.md.
+
+  Data: https://huggingface.co/datasets/osunlp/TravelPlanner
+        at revision 8736504ecfc31b7f8b7e40122873c337e83fff7c
+        Creative Commons Attribution 4.0 International (CC BY 4.0).
+        The dataset files and the sandbox database are downloaded locally and are NOT
+        redistributed in this repository (ARCHITECTURE.md §8). Small evaluator-output
+        fixtures that contain database entity names may be committed with this
+        attribution (assumption A-017).
+
+------------------------------------------------------------------------------------------
+Qwen3
+  Qwen3-8B, by the Qwen team, Alibaba Cloud. https://huggingface.co/Qwen/Qwen3-8B
+  Licensed under the Apache License, Version 2.0:
+  https://huggingface.co/Qwen/Qwen3-8B/blob/main/LICENSE
+
+  The model weights (served locally through Ollama as qwen3:8b-q4_K_M) and the tokenizer
+  files are downloaded at run time and are NOT redistributed in this repository.

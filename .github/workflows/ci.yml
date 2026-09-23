@@ -1,0 +1,138 @@
+# CI for Tripartite (ARCHITECTURE.md D1), written once at M0 for every milestone.
+#
+# Steps whose input a later milestone creates are guarded by that path's existence
+# (D9 §Shared files, item 2). While the input is absent, the step is skipped and a
+# companion step prints "skipped: <path> not present yet" to the log and the job
+# summary. As soon as the path exists, the step runs and must pass.
+#
+# No model, no sandbox database and no Hugging Face network access in CI.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    env:
+      TRIPARTITE_LLM: fake
+      TRIPARTITE_EVAL_BRIDGE: fake
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.7"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install Python from .python-version
+        run: uv python install
+
+      - name: Install dependencies (locked)
+        run: uv sync --locked
+
+      - name: ruff check
+        run: uv run ruff check
+
+      - name: ruff format --check
+        run: uv run ruff format --check
+
+      - name: mypy src
+        run: uv run mypy src
+
+      - name: lint-imports (D3 contracts)
+        run: uv run lint-imports
+
+      - name: Repository hygiene (§8)
+        run: uv run python scripts/ci/repo_hygiene.py
+
+      - name: pytest -m "not local"
+        run: uv run pytest -m "not local"
+
+      # Guarded (M1): test-split refusal tests (D3). They run inside the pytest step above.
+      - name: "Guard: test-split refusal tests"
+        if: hashFiles('tests/data/test_loader_refusals.py') == ''
+        run: |
+          echo "skipped: tests/data/test_loader_refusals.py not present yet" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Guarded (M2): aggregator equivalence against the golden evaluator output (D5).
+      # It runs inside the pytest step above.
+      - name: "Guard: aggregator golden equivalence test"
+        if: hashFiles('tests/fixtures/eval_golden/**') == ''
+        run: |
+          echo "skipped: tests/fixtures/eval_golden/ not present yet" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Guarded (M2): vendor integrity check (data-eval owns scripts/vendor_check.py).
+      - name: Vendor integrity check
+        if: hashFiles('vendor/travelplanner/VENDOR.lock') != ''
+        run: uv run python scripts/vendor_check.py
+      - name: "Guard: vendor integrity check"
+        if: hashFiles('vendor/travelplanner/VENDOR.lock') == ''
+        run: |
+          echo "skipped: vendor/travelplanner/VENDOR.lock not present yet" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Guarded (F1): the exported OpenAPI document must equal the committed contract.
+      - name: OpenAPI drift check
+        if: hashFiles('api-contract/openapi.json') != ''
+        run: |
+          uv run tripartite api export-openapi > "$RUNNER_TEMP/openapi.json"
+          diff -u api-contract/openapi.json "$RUNNER_TEMP/openapi.json"
+      - name: "Guard: OpenAPI drift check"
+        if: hashFiles('api-contract/openapi.json') == ''
+        run: |
+          echo "skipped: api-contract/openapi.json not present yet" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # hashFiles() is not available in a job-level `if`, so this job decides whether the
+  # web job runs (guard: web/package.json, W1).
+  web-guard:
+    runs-on: ubuntu-latest
+    outputs:
+      present: ${{ steps.present.outputs.present }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: present
+        if: hashFiles('web/package.json') != ''
+        run: echo "present=true" >> "$GITHUB_OUTPUT"
+      - name: "Guard: web job"
+        if: hashFiles('web/package.json') == ''
+        run: |
+          echo "skipped: web/package.json not present yet" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  web:
+    needs: web-guard
+    if: needs.web-guard.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build
+
+      - name: Generated API types match api-contract/openapi.json
+        run: |
+          npx --no-install openapi-typescript ../api-contract/openapi.json -o "$RUNNER_TEMP/types.gen.ts"
+          diff -u src/api/types.gen.ts "$RUNNER_TEMP/types.gen.ts"

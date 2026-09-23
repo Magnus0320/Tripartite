@@ -1,0 +1,83 @@
+[project]
+name = "tripartite"
+version = "0.1.0"
+description = "Reproducible TravelPlanner sole-planning baseline with a local 8B model (ARCHITECTURE.md v0.1 scope)."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Abhimanyu Arya" }]
+requires-python = "==3.12.*"
+dependencies = [
+    "fastapi>=0.141.1",
+    "filelock>=4.0.1",
+    "httpx>=0.28.1",
+    "huggingface-hub>=1.32.0",
+    "jinja2>=3.1.6",
+    "mlflow>=3.16.1",
+    "pydantic>=2.13.5",
+    "pyyaml>=6.0.3",
+    "sse-starlette>=3.4.11",
+    "tokenizers>=0.23.2",
+    "typer>=0.27.2",
+    "uvicorn>=0.53.0",
+]
+
+[project.scripts]
+tripartite = "tripartite.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.11.7,<0.12"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "import-linter>=2.15",
+    "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.8",
+    "types-pyyaml>=6.0.12.20260906",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+# vendor/ holds the upstream evaluator byte for byte (D5); web/ has no Python. Markdown is
+# excluded because ruff formats Python blocks inside it, and ARCHITECTURE.md is not ours to edit.
+extend-exclude = ["vendor", "web", "*.md"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF", "PT"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.pydantic-mypy]
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-markers", "--strict-config", "-ra"]
+markers = [
+    "local: needs Ollama and/or the sandbox database; run with `make test-local`, never in CI (D1)",
+]
+asyncio_default_fixture_loop_scope = "function"
+
+# D3 data boundary. CI fails on any violation; indirect imports count too.
+[tool.importlinter]
+root_package = "tripartite"
+
+[[tool.importlinter.contracts]]
+name = "Planner side (planner, llm, parse) must not import evaluation or api (D3)"
+type = "forbidden"
+source_modules = ["tripartite.planner", "tripartite.llm", "tripartite.parse"]
+forbidden_modules = ["tripartite.evaluation", "tripartite.api"]
+
+[[tool.importlinter.contracts]]
+name = "Data loading must not import evaluation (D3)"
+type = "forbidden"
+source_modules = ["tripartite.data"]
+forbidden_modules = ["tripartite.evaluation"]
