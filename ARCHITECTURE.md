@@ -1,7 +1,8 @@
-ARCHITECTURE.md · v0.3 · 2026-09-23
+ARCHITECTURE.md · v0.4 · 2026-09-23
 
 # Changelog
 
+- v0.4 (2026-09-23): answers M0's 12 architecture questions and accepts all 6 of its deviations. New in D4: the `configs/stack.yaml` schema and the `tripartite model serve-env` contract (Q1). New in D7: the `manifest.json` model and its five statuses (Q5), the `metrics.json` / `metrics_seed*.json` schemas, MLflow naming, tags and idempotency with sync now manual-only and scheduled to a new milestone M6 (Q4), the resume tail-repair rule (Q10), and the confirmed nullable and closed-set field decisions (Q9). §8 and D9: the test-split pattern now matches the **file name**, not the path, and only data extensions, which unblocks data-eval's own tests (Q6); `/runs/` and `/mlruns/` are anchored (Q7); `.claude/settings.local.json` and `.claude/worktrees/` are listed (Q11); the guard list gains `evalenv/pyproject.toml` and names `src/tripartite/api/cli.py` for `api` and `openapi` (Q2, B1); guarded targets are described as make exit 2 (Q12, B2); `llm/cli.py` belongs to the model session (Q3); the Typer and mypy conventions and the `make test-local` empty-collection rule are recorded (C). §6 pins Python 3.12.13 (B6). Deviations B3–B5 accepted as written. A new "Follow-ups" section lists the seven file changes this version requires, all owned by the foundation session. A-022 and A-023 added.
 - v0.3 (2026-09-23): the repository is public, its root is this project's folder, and its remote is `github.com/Magnus0320/Tripartite`; commit 8205414 holds v0.2. New §8 (repository and publication hygiene) states what is never committed and names the check that enforces it; D9's `.gitignore` and vendor lines were tightened to match, and `scripts/` was added to the tree with owners. Open question 5 is fully closed. Fix: `num_ctx` is now **fixed at 32768** rather than computed, so nothing can disagree with the running server or invalidate the calibration; `make measure-context` has an explicit two-step order, and the measurement is a pass/fail gate, not an input (D4, D1). Fix: shared files across milestones. M0 creates the empty package skeleton, every CI step and Makefile target written at M0 is guarded by the existence of its input and becomes mandatory as soon as that input exists, `scripts/vendor_check.py` is owned by the data-eval session, and "CI green at M0" is defined exactly (D9 §Shared files). The same rule, plus a list of read-only shared paths (MANIFEST, openapi.json, the calibration report, smoke-ids, the model lock, conftest), resolves the other cross-session paths found in a sweep of D9.
 - v0.2 (2026-09-22): user decisions recorded. D4 and D5 approved. D6 approved on condition that A-009 holds, and M4 is now gated on A-009 (D9 build order). A note there lets M3 use the official prompt only for token counting and calibration probes. Open question 4 (extra temperature-0 pass) declined. Licence MIT (open question 5; public/private still open). Open questions 6 and 7 unchanged in substance: R3 stays at ±2.0 pp, and A-016 remains the trigger to revisit it. NEEDS APPROVAL markers removed and Open questions updated. Fix: the tokenizer-agreement check and the truncation post-check assumed uncached calls, but every planner prompt shares the official instruction and example before `{text}`, so later calls hit the prompt cache. Both checks are redesigned in D4 around a Phase 0 calibration (`tripartite model calibrate`, run by `make measure-context`), cold probes made uncached by unloading the model, a unique-nonce warm-up, and a per-call bound that uses the token prefix shared with the previous prompt. Before calibration, real-model runs refuse to start. The measure-context row of the Makefile table, D1 Phase 0 exit item 2 and milestone M3 were updated to match. A-018–A-021 added; A-018 supersedes A-002 and A-019 supersedes A-003. Brief issues 1 and 10 no longer say "pending approval".
 - v0.1 (2026-09-22): initial. Covers Phases 0 and 1 in full. Later phases appear only as named seams.
@@ -196,6 +197,37 @@ def get_planner_input(query_id: str) -> PlannerInput: ...
 | Concurrency | 1 request at a time, system-wide. A file lock `runs/.model.lock` (filelock) is held by any process that calls the model (CLI batch or API job). |
 | Warm-up | Each run, and each API single-run job, starts with one warm-up call (`num_predict: 1`), logged with `role: "warmup"` and excluded from metrics, so measured calls exclude model load. The warm-up prompt is the chat template around the fixed text `Reply with OK. nonce=<uuid4 hex>`, with a fresh nonce each time. The only token prefix it shares with any planner prompt is the chat-template header. That makes the cache state after the warm-up known by construction (see the post-check). |
 
+**`configs/stack.yaml` (Q1; owner: model session, M3).** One file holds every runtime pin, and both `make serve-model` and `tripartite model doctor` read it. Keys:
+
+```yaml
+schema_version: 1
+runtime:
+  name: ollama
+  version: "0.x.y"                  # exact; doctor compares `ollama --version`
+  url: "http://127.0.0.1:11435"     # the dedicated server this project uses
+  log_path: runs/ollama-server.log
+  env:                              # exported verbatim before `ollama serve`
+    OLLAMA_HOST: "127.0.0.1:11435"
+    OLLAMA_CONTEXT_LENGTH: "32768"
+    OLLAMA_NUM_PARALLEL: "1"
+    OLLAMA_MAX_LOADED_MODELS: "1"
+    OLLAMA_KEEP_ALIVE: "-1"
+    OLLAMA_FLASH_ATTENTION: "1"
+    OLLAMA_KV_CACHE_TYPE: "f16"
+  desktop_app_url: "http://127.0.0.1:11434"   # must have no model loaded
+model:
+  tag: "qwen3:8b-q4_K_M"
+  digest: "sha256:<64 hex>"
+  quant: q4_K_M
+  num_ctx: 32768
+tokenizer:
+  repo: "Qwen/Qwen3-8B"
+  revision: "<hf commit sha>"
+  local_dir: data/tokenizer
+```
+
+`runtime.env` is the single source of the D4 server environment: the table above is its prose, and if the two ever disagree the table wins and the file is wrong. The model session provides `tripartite model serve-env [--format sh]`, which validates the file and prints one `KEY=VALUE` line per `runtime.env` entry (`--format sh` prints `export KEY='VALUE'`). `make serve-model` evaluates that output and then runs `ollama serve`, appending to `runtime.log_path`; it never parses YAML itself. `tripartite model doctor` checks: the file validates; `ollama --version` equals `runtime.version`; the server at `runtime.url` answers; its effective context length and loaded model match `model.num_ctx` and `model.digest` (A-022); `desktop_app_url` has no model loaded (`/api/ps` empty, a warning rather than a failure if that server is not running at all); `reports/token_calibration.json` is missing, valid or stale (D4 §Token calibration); and `data/MANIFEST.json` matches (`tripartite data verify`).
+
 **Memory budget (24 GB unified, dev tools and Claude apps running).** Weights take 5.2 GB. f16 KV cache is 2 × 36 layers × 8 heads × 128 × 2 B = 147,456 B/token, which is 4.8 GB at 32,768 tokens; the compute graph adds about 1 GB. Total resident is about 11 GB (A-011). That is under the ~16 GB default GPU working-set limit (A-005) and leaves about 13 GB for macOS, IDE, browser and the Claude apps.
 
 **Context measurement (Phase 0, `make measure-context`).** The target runs exactly two commands, in this order, and stops at the first failure:
@@ -287,11 +319,11 @@ Alternatives considered:
 
 ## D7 (g). Run log and tracking
 
-**Location and immutability.** `runs/<run_id>/`, gitignored. `run_id = <UTC YYYYMMDDTHHMMSSZ>-<kind>-<config_hash[:8]>-<4 hex>`. A finished run is never modified. Re-scoring writes to `runs/<run_id>/rescore-<ts>/`, and `make eval` compares.
+**Location and immutability.** `runs/<run_id>/`, gitignored. `run_id = <UTC YYYYMMDDTHHMMSSZ>-<kind>-<config_hash[:8]>-<4 hex>`. `manifest.json` is the one mutable file while a run is in progress; once a run reaches a terminal status nothing in the directory changes. Re-scoring writes to `runs/<run_id>/rescore-<ts>/`, and `make eval` compares.
 
 **Run directory:**
 ```
-manifest.json            # = payload of run_start, plus final status
+manifest.json            # RunManifest: the run_start payload plus live status (Q5)
 events.jsonl             # all events, append-only, one JSON object per line
 blobs/<sha256>.txt       # rendered prompts (stored once; shared across seeds)
 plans_seed{n}.jsonl      # evaluator input: 180 lines (or subset) {"idx","query","plan"}
@@ -300,6 +332,25 @@ metrics_seed{n}.json     # official scores (full runs) or subset aggregate
 metrics.json             # summary across seeds + tokens/latency stats
 reproduce_check.json     # only when produced by reproduce-check
 ```
+
+**`manifest.json` (Q5).** Model `RunManifest` in `src/tripartite/runlog/schema.py`:
+
+```
+{"schema_version": 1,
+ "run_start": <the run_start payload, without the envelope>,
+ "status": "queued" | "running" | "succeeded" | "failed" | "interrupted",
+ "stage": "queued" | "generating" | "parsing" | "evaluating" | "done" | null,
+ "created_at", "updated_at", "finished_at": <RFC3339 UTC | null>,
+ "progress": {"done": int, "total": int},
+ "resumed": bool, "repaired_tail_bytes": int,
+ "metrics_path": str | null,
+ "error": {"type", "message"} | null}
+```
+`status` and `stage` are closed sets, and they are exactly what D8's `RunDetail` reports, so the API maps rather than invents. `queued` and `running` are included, because an API job is written to disk before it starts. `run_end.status` keeps its three terminal values. Every update rewrites the file atomically (temp file plus `os.replace`). The CLI writes `status: "running"` at the start; the API job runner writes `"queued"` when the job is accepted. On API start-up, a run still marked `queued` or `running` becomes `interrupted` (D8).
+
+**`metrics_seed{n}.json`:** `{"schema_version": 1, "run_id", "seed", "subset": bool, "n_queries": int, "source": "official_eval_score" | "subset_aggregate", "scores": {<the six official keys, verbatim, as rates in [0, 1]>}, "detailed": <eval.py's second return value, or the subset equivalent>}`.
+
+**`metrics.json`:** `{"schema_version": 1, "run_id", "kind", "config_hash", "created_at", "finished_at", "subset": bool, "n_queries": int, "seeds": [int], "post_check_mode": str, "metrics": {<official key>: {"per_seed": {"<seed>": float}, "mean": float, "sd": float | null}}, "non_delivery": {<failure_reason>: int}, "parse": {"attempted": int, "ok": int, "failure_rate": float}, "tokens": {"input" | "output" | "thinking": {"mean", "median", "p95"}}, "latency_ms": {"wall" | "load" | "prefill" | "generation": {"mean", "median", "p95"}}}`. `sd` is the sample SD (ddof=1), or null with fewer than two seeds. Token and latency statistics are over the per-(query, seed) values, excluding warm-ups; `p95` is the nearest-rank percentile (index `ceil(0.95 n) - 1` of the sorted values); a statistic over an empty set or over values that are all null is null. Rates are in [0, 1] everywhere; only the CLI's printed report shows percentages.
 
 **Event envelope** (every line): `{"schema_version": 1, "event_id": <uuid4>, "seq": <int, per run, from 0>, "ts": <RFC3339 UTC>, "run_id", "event_type", ...payload}`. Readers MUST ignore unknown `event_type`s and unknown fields.
 
@@ -313,11 +364,37 @@ reproduce_check.json     # only when produced by reproduce-check
 - `run_end`: `status` (succeeded|failed|interrupted), `counts`, `metrics_path`, `error`.
 - `error`: any hard error (`ContextOverflowError`, `TruncationError`, `EvaluationError`, digest mismatch), with a traceback string.
 
+**Field decisions confirmed in v0.4 (Q9), all as M0 built them unless noted:**
+- `llm_call.query_id` and `.seed` are null **only** when `role == "warmup"`, and a model validator enforces that. The runtime-reported counts (`input_reported`, `input_cached_reported`, `output_reported`), every `timing_ms` field except `wall_client`, `done_reason`, `output_text` and `thinking_text` are nullable, because a failed call reports none of them. `tokens.input`, `tokens.output_visible`, `tokens.output_thinking` and `timing_ms.wall_client` are always present.
+- The `error` event carries `{type, message, traceback}`.
+- `run_end.error` is `{type, message}` or null; `metrics_path` is nullable; `counts` is `dict[str, int]` and MUST contain at least `queries`, `seeds`, `pairs_total`, `pairs_done`, `delivered`, `llm_calls`, `errors`.
+- `dataset.files_sha256` maps file name to sha256.
+- `eval.commonsense` and `eval.hard` are both nullable: the bridge returns null groups for an undelivered plan, and `hard` is also null when D5's gating skipped it.
+- `query_result.totals.load_ms`, `.prefill_ms` and `.generation_ms` are nullable; `wall_ms` and `parse_ms` are not.
+- `env` additionally carries `iogpu_wired_limit_mb: int | null` and `gpu_recommended_max_working_set_bytes: int | null` (§6, A-005). Null means the value could not be read.
+- Free strings: `mode`, `context_mode`, `split`, `order`, `role`, `agent_id`, `parser_version`, `prompt_version`, `failure_reason`. Closed sets: `kind` (batch|single), `query_result.status`, `run_end.status`, and the manifest's `status` and `stage`.
+
 Schemas are pydantic models in `src/tripartite/runlog/schema.py`, and JSON Schema is exported to `src/tripartite/runlog/schema.json`. `writer.py` flushes and fsyncs each line. `reader.py` streams events.
 
-**Resume.** `tripartite run --resume <run_id>` requires the same `config_hash`. It skips (query, seed) pairs that already have a `query_result`, appends to the same `events.jsonl`, and sets `resumed: true` in the manifest.
+**Resume.** `tripartite run start --resume <run_id>` requires the same `config_hash`. It skips (query, seed) pairs that already have a `query_result`, appends to the same `events.jsonl`, and sets `resumed: true` in the manifest.
 
-**MLflow** is a derived, disposable index for comparing runs across time in a UI (params, headline metrics, artifact links). It is **not** the record: JSONL is the source of truth, and if they disagree, JSONL wins. It uses a local file store `./mlruns` (gitignored) and experiment `tripartite`. At the end of a batch run (and via `make mlflow-sync RUN=…`), one MLflow run is logged per Tripartite batch run: params = config_hash, model tag+digest, prompt_version, parser_version, seeds; metrics = the six official metrics per seed (`step = seed`) plus mean; artifacts = manifest.json and metrics.json. Single UI runs are not synced. The API never reads MLflow.
+**A crash can leave a half-written last line (Q10).** The reader stays strict by default, because a corrupt log is normally a bug. Resume alone repairs, and only the tail:
+- `runlog.reader.repair_tail(path) -> int` inspects the **final line only**. If the file does not end with `\n`, or that last line is not a decodable JSON object with a valid envelope, the file is truncated at the offset of the last newline before it, and the discarded bytes are written to `runs/<run_id>/events.corrupt-<UTC ts>.txt`. It returns the number of bytes discarded, 0 when there was nothing to repair.
+- A malformed line anywhere other than the end is a hard `RunLogError`, never repaired. This is the crash model in A-023: the writer appends whole lines and fsyncs, so only the last line can be partial.
+- `tripartite run start --resume` calls `repair_tail` before reading, records the result as `repaired_tail_bytes` in the manifest, and writes its new `run_start` event with `resumed_from: <the same run_id>`. Nothing else in the pipeline or the API calls it, and `make eval`, `reproduce-check` and the API read with the strict reader, so a corrupt run cannot be scored silently.
+- `read_events(path, tolerate_partial_tail=False)` gains that keyword for read-only callers that want the same leniency without touching the file; resume uses `repair_tail` instead, because it is about to append.
+
+**MLflow (Q4)** is a derived, disposable index for comparing runs across time in a UI. It is **not** the record: JSONL is the source of truth, and if they disagree, JSONL wins. The API never reads MLflow, and it is not part of any exit criterion.
+
+- **Manual only.** The pipeline does **not** sync at the end of a run (changed in v0.4, to keep M4 free of MLflow). Syncing happens through `make mlflow-sync RUN=<run_id>` → `tripartite log mlflow-sync --run <run_id>`.
+- **Scheduled to M6** (foundation), after M4, because it needs a real run directory to test against. Files: `src/tripartite/runlog/mlflow_sync.py` and `src/tripartite/runlog/cli.py`.
+- Store: local file store `./mlruns` (gitignored). Experiment: `tripartite`. Run name: the `run_id`.
+- **Only `kind == "batch"` runs are synced.** A single run exits 0 with `skipped: run <id> is kind=single`.
+- Tags: `tripartite.run_id`, `tripartite.kind`, `tripartite.config_hash`, `tripartite.prompt_version`, `tripartite.parser_version`, `tripartite.model_tag`, `tripartite.model_digest`, `tripartite.evaluator_commit`, `tripartite.dataset_revision`, `tripartite.git_commit`, `tripartite.architecture_version`.
+- Params: `config_hash`, `model_tag`, `model_digest`, `quant`, `num_ctx`, `num_predict`, `temperature`, `top_p`, `top_k`, `min_p`, `seed_list` (JSON array), `prompt_version`, `parser_version`, `evaluator_commit`, `dataset_revision`, `n_queries`, `subset`.
+- Metric keys (snake_case of the official names): `delivery_rate`, `commonsense_micro`, `commonsense_macro`, `hard_micro`, `hard_macro`, `final_pass_rate`, each logged once per seed with `step = seed`, plus `<key>_mean` and `<key>_sd` at `step = 0`, plus `tokens_input_mean`, `tokens_output_mean`, `latency_wall_ms_median` and `parse_failure_rate`. Values are rates in [0, 1].
+- Artifacts: `manifest.json`, `metrics.json` and every `metrics_seed*.json`. Never `events.jsonl`, plans or prompts.
+- **Idempotent.** Sync looks for an existing MLflow run whose `tripartite.run_id` tag matches; if it finds one it deletes it and creates a new one, so repeated syncs converge on one run per `run_id` and never duplicate. Anything it cannot find (a missing `metrics.json`) is an error, not a partial sync.
 
 ## D8 (h). Backend and UI contract (Phase 1)
 
@@ -352,7 +429,12 @@ Schemas are pydantic models in `src/tripartite/runlog/schema.py`, and JSON Schem
 - W4 tokens and latency panel (F2)
 - W5 run history list, opening a single run's detail or a batch run's metrics table and item list → item detail (F3)
 
-Types are generated from `api-contract/openapi.json` with `openapi-typescript` into `web/src/api/types.gen.ts`. The dev server proxies `/api` to `127.0.0.1:8000`. There is no global state library; use React state plus `fetch`/`EventSource`. The UI never shows evaluator-only query fields except through `constraints`.
+Types are generated from `api-contract/openapi.json` into `web/src/api/types.gen.ts`. The canonical command (Q8), run from `web/`, is exactly the one CI diffs against:
+
+```
+npx --no-install openapi-typescript ../api-contract/openapi.json -o src/api/types.gen.ts
+```
+`openapi-typescript` is a pinned devDependency in `web/package.json`, and `npm run types` MUST be exactly that command, so that regenerating locally and the CI check can never differ. CI writes to a temporary file and diffs. The dev server proxies `/api` to `127.0.0.1:8000`. There is no global state library; use React state plus `fetch`/`EventSource`. The UI never shows evaluator-only query fields except through `constraints`.
 
 ## D9 (i). Repo layout, path ownership, build order
 
@@ -380,7 +462,7 @@ tripartite/
 │   ├── data/    (planner_inputs.py, download.py, manifest.py, cli.py)                    data-eval
 │   ├── evaluation/ (records.py, bridge_client.py, constraints.py, aggregate.py, cli.py)  data-eval
 │   ├── config.py                                                                         model
-│   ├── llm/     (ollama_client.py, fake_client.py, chat_template.py, tokenizer.py, errors.py, doctor.py)   model
+│   ├── llm/     (ollama_client.py, fake_client.py, chat_template.py, tokenizer.py, errors.py, doctor.py, cli.py)   model
 │   ├── planner/ (prompt.py, sole_planner.py)                                             model
 │   ├── parse/   (text_plan_parser.py)                                                    model
 │   ├── pipeline/ (run.py, resume.py, lock.py, metrics.py, reproduce.py, cli.py)          model
@@ -426,17 +508,37 @@ Every path belongs to exactly one session. A session MUST NOT edit another sessi
 | `mlflow-sync` | `tripartite log mlflow-sync --run $(RUN)` |
 | `mlflow-ui` | `uv run mlflow ui --backend-store-uri ./mlruns` |
 
-- `.gitignore` (the repository is public, so this is a safety boundary, not tidiness — see §8): `.venv/`, `evalenv/.venv/`, `data/*` with `!data/MANIFEST.json`, `vendor/travelplanner/database/*` with `!vendor/travelplanner/database/README.md`, `runs/`, `mlruns/`, `web/node_modules/`, `web/dist/`, `*.log`, `.env`, `.env.*`, `*.zip`. `results/` is **not** ignored: `results/phase1/<run_id>/{manifest.json,metrics.json,reproduce_check.json}` is committed on purpose, and those three files carry no plan text and no database rows.
+- `.gitignore` (the repository is public, so this is a safety boundary, not tidiness — see §8): `.venv/`, `evalenv/.venv/`, `data/*` with `!data/MANIFEST.json`, `vendor/travelplanner/database/*` with `!vendor/travelplanner/database/README.md`, `/runs/`, `/mlruns/` (anchored to the repository root, so a future `web/src/runs/` is not swallowed — Q7), `web/node_modules/`, `web/dist/`, `*.log`, `.env`, `.env.*`, `*.zip`, the tool caches (`__pycache__/`, `*.py[cod]`, `.mypy_cache/`, `.ruff_cache/`, `.pytest_cache/`, `.import_linter_cache/`, `*.egg-info/`, `dist/`, `build/`) and the local machine and agent state `.DS_Store`, `.claude/settings.local.json`, `.claude/worktrees/` (Q11, B5). `results/` is **not** ignored: `results/phase1/<run_id>/{manifest.json,metrics.json,reproduce_check.json}` is committed on purpose, and those three files carry no plan text and no database rows.
 - `NOTICE`: TravelPlanner attribution (MIT code, CC BY 4.0 data) and Qwen3 licence reference.
 
 **Shared files across milestones.** Three paths are needed by every session but owned by one: `Makefile`, `.github/workflows/ci.yml` and `pyproject.toml` (foundation). The rule, so that no session ever edits another's path:
 
 1. **Written once, complete, at M0.** Foundation writes the final Makefile, CI workflow and dependency list from this document, covering every milestone. Nothing later is expected to change them.
-2. **Guard by existence; mandatory on appearance.** Every CI step and Makefile target whose input a later milestone creates is guarded by that path existing (`if: hashFiles('<path>') != ''` in Actions, `test -e` in the Makefile). A guarded step skips with the printed line `skipped: <path> not present yet`, and it is mandatory as soon as the path exists. Paths only ever appear, so no check can be silently switched off, and the CI summary lists what was skipped. Guarded Makefile targets are `setup` (its `npm ci --prefix web` step), `web`, `e2e-local`, `openapi`, `api`, and `serve-model` (which reads the D4 env from `configs/stack.yaml`, created at M3). A guarded step inside a larger target prints the skip line and the target continues; a guarded target invoked by name exits 1 with the same message, so a skip is never mistaken for success.
+2. **Guard by existence; mandatory on appearance.** Every CI step and Makefile target whose input a later milestone creates is guarded by that path existing (`if: hashFiles('<path>') != ''` in Actions, `test -e` in the Makefile). A guarded step skips with the printed line `skipped: <path> not present yet`, and it is mandatory as soon as the path exists. Paths only ever appear, so no check can be silently switched off, and the CI summary lists what was skipped. The guard list (Q2, B1), each with its guard path:
+
+   | Target or step | Guard path | Milestone |
+   |---|---|---|
+   | `setup`: `uv sync --project evalenv` | `evalenv/pyproject.toml` | M2 |
+   | `setup`: `npm ci --prefix web` | `web/package.json` | W1 |
+   | `serve-model` | `configs/stack.yaml` | M3 |
+   | `api`, `openapi` | `src/tripartite/api/cli.py` | F1 |
+   | `web`, `e2e-local` | `web/package.json` | W1 |
+   | CI: vendor integrity check | `vendor/travelplanner/VENDOR.lock` | M2 |
+   | CI: test-split refusal tests | `tests/data/test_loader_refusals.py` | M1 |
+   | CI: aggregator golden test | `tests/fixtures/eval_golden/` | M2 |
+   | CI: OpenAPI drift check | `api-contract/openapi.json` | F1 |
+   | CI: web job | `web/package.json` | W1 |
+
+   A guarded step inside a larger target prints the skip line and the target continues. A guarded target invoked by name prints the skip line and its recipe exits 1, which makes `make` itself exit 2 (Q12, B2) — the point is the non-zero exit and the message, not the number.
 3. **Package skeleton at M0.** Foundation creates `src/tripartite/{data,evaluation,llm,planner,parse,pipeline,api,runlog}/__init__.py` as empty files, plus empty `tests/{data,evaluation,llm,planner,parse,pipeline,api,leak}/` directories with `__init__.py`. This is a one-time creation: from that commit on, each directory including its `__init__.py` belongs to the owner named in the tree above. It exists so that `mypy` and the D3 import-linter contracts, which name these modules, resolve and run from M0 onwards.
 4. **Owner of the vendor integrity check:** the **data-eval** session owns `scripts/vendor_check.py`, together with `vendor/` and `VENDOR.lock` (M2). CI calls it as a guarded step. Foundation owns `scripts/ci/repo_hygiene.py` (§8), which always runs.
-5. **Read-only shared paths (the rest of the sweep).** These are owned by one session and consumed by another, always read-only, so nobody needs to edit another's path. The consumer treats a missing file as a clear error, never as a reason to edit: `data/MANIFEST.json` (data-eval → model's `doctor`); `api-contract/openapi.json` (api → web's type generation and the CI drift check); `reports/token_calibration.json` (model → the api job runner, D4 §Before calibration has run); the output of `tripartite eval smoke-ids` (data-eval → `configs/smoke.yaml`, committed by model, D1); and the lock file `runs/.model.lock` plus the run directory layout (D7), which the model and api sessions share by this contract rather than by shared code. `tests/conftest.py` (foundation, M0) holds only the `local` marker registration and the fake-mode environment fixtures; each session adds its own `conftest.py` inside the test package it owns.
+5. **Read-only shared paths (the rest of the sweep).** These are owned by one session and consumed by another, always read-only, so nobody needs to edit another's path. The consumer treats a missing file as a clear error, never as a reason to edit: `data/MANIFEST.json` (data-eval → model's `doctor`); `api-contract/openapi.json` (api → web's type generation and the CI drift check); `reports/token_calibration.json` (model → the api job runner, D4 §Before calibration has run); the output of `tripartite eval smoke-ids` (data-eval → `configs/smoke.yaml`, committed by model, D1); and the lock file `runs/.model.lock` plus the run directory layout (D7), which the model and api sessions share by this contract rather than by shared code. `tests/conftest.py` (foundation, M0) holds only the autouse fake-mode environment fixture; the `local` marker is registered in `pyproject.toml` (B4). Each session adds its own `conftest.py` inside the test package it owns.
 6. **Escape hatch.** If a session finds it needs a new dependency, Makefile target or CI step that the M0 versions cannot express as a guarded step, it does not edit those files. It writes the request under "Architecture questions" in its PR. The architecture session updates this document, and the foundation session makes the edit in its own follow-up PR.
+
+**Conventions every session follows (recorded from M0's findings, C):**
+- Each `<pkg>/cli.py` exposes `app: typer.Typer`, which `src/tripartite/cli.py` loads lazily by module path. Typer 0.27 no longer depends on click, so sessions use Typer's own API and never `import click`.
+- `mypy --strict` with the pydantic plugin applies to all of `src/`. New code is fully annotated; `type: ignore` needs a reason in the PR.
+- `make test-local` must not fail merely because no local test exists yet. Its recipe treats pytest's exit code 5 ("no tests collected") as success and prints `no local tests collected` (C). From M3 on, local tests exist, and an empty collection in a PR that touches the paths in D1's local gate is a review flag, not a pass.
 
 **"CI green at M0" means exactly:** `ruff check` and `ruff format --check` pass over `src/` and `tests/`; `mypy src` passes over the empty packages plus `runlog/` and `cli.py`; `lint-imports` runs every D3 contract and they hold vacuously; `pytest -m "not local"` collects and passes the runlog tests (schema round trip, writer/reader, unknown-event-type tolerance) and nothing else; `scripts/ci/repo_hygiene.py` passes; and each guarded step prints its skip line. The web job does not run, because `web/package.json` does not exist yet.
 
@@ -458,6 +560,7 @@ Every path belongs to exactly one session. A session MUST NOT edit another sessi
 | F3 | api | History, batch items, item detail | F2 |
 | W5 | web | Run history | F3 |
 | M5 | model | Full baseline, second run, reproduce-check, results/phase1 → with W1–W5 + `e2e-local`: **Phase 1 exit** | M4, W5 |
+| M6 | foundation | `runlog/mlflow_sync.py` + `runlog/cli.py` (D7 §MLflow). Not part of any exit criterion; may land any time after M4 | M4 |
 
 Note on M3 vs the A-009 gate: `measure-context` and `calibrate` need the rendered official prompt only to count tokens and to send `num_predict: 1` probes. No plan is generated and no output is used. M3 may therefore create `prompts/sole_planning_direct_v1.txt` and `planner/prompt.py` for that purpose before A-009 is settled. Everything else in M4 waits for the gate. If A-009 fails, `measure-context` and `calibrate` are re-run with the replacement prompt.
 
@@ -482,7 +585,7 @@ The web session never builds against mock data: every component calls an endpoin
 | Upstream evaluator | `OSU-NLP-Group/TravelPlanner@e52c87f4ac348a3410c46dc3553c519db5ec5e23` | VENDOR.lock |
 | HF dataset | `osunlp/TravelPlanner@8736504ecfc31b7f8b7e40122873c337e83fff7c`, files validation.csv and validation_ref_info.jsonl with sha256 | data/MANIFEST.json |
 | Sandbox database | database.zip sha256 (first download, A-013) | data/MANIFEST.json |
-| Python | exact version in `.python-version` (3.12.x) | repo |
+| Python | `.python-version` = `3.12.13`, the newest 3.12 uv can install, so CI matches local (B6) | repo |
 | Python deps | `uv.lock`, `evalenv/uv.lock` | repo |
 | Node / web deps | `web/.nvmrc`, `web/package-lock.json` | repo |
 | Ollama | exact version | configs/stack.yaml |
@@ -504,14 +607,28 @@ The repository is **public**: `github.com/Magnus0320/Tripartite`, with its root 
 Because every push is public, and because some of this is a licence and fair-evaluation matter rather than only a privacy one, these are never committed, at any milestone:
 
 1. **Dataset files:** anything under `data/` except `data/MANIFEST.json`, which holds names, revisions and sha256 only. That covers `validation.csv`, `validation_ref_info.jsonl` and every derivative.
-2. **Any test-split artefact:** `test.csv`, `test_ref_info.jsonl`, or any path matching `*test*ref_info*`. D3 keeps them off the machine; this keeps them out of git even if one appears locally.
+2. **Any test-split artefact**, matched on the **file name only, never the whole path** (Q6): a file whose name is `test.csv` or `test_ref_info.jsonl`, or whose name matches `*test*ref_info*` **and** whose extension is a data extension (`.csv`, `.jsonl`, `.json`, `.parquet`, `.zip`, `.gz`, `.txt`). Source and test files are never caught by this rule, so data-eval's own `tests/data/test_ref_info_alignment.py` (the A-007 check) is fine, while `tests/fixtures/test_ref_info.jsonl` is refused. D3 keeps the real files off the machine; this keeps them out of git even if one appears locally.
 3. **The sandbox database:** `data/downloads/database.zip` and everything unzipped under `vendor/travelplanner/database/` except the upstream `README.md`. It is a third-party download with its own licence (A-017), redistributed by its authors only.
-4. **Run output:** `runs/` and `mlruns/` in full — prompts, raw model output, plans, logs. Only the three small `results/phase1/<run_id>/` files are published.
-5. **Secrets:** `.env` files, API keys, tokens. The project has no API keys by design (₹0 cap, local models), so any key-shaped string in a diff is a mistake.
+4. **Run output:** the repository-root `runs/` and `mlruns/` directories in full — prompts, raw model output, plans, logs. The rule is anchored at the root (Q7), so a source directory that happens to be called `runs` elsewhere in the tree is unaffected. Only the three small `results/phase1/<run_id>/` files are published.
+5. **Secrets and local agent state:** `.env` files, API keys, tokens, and `.claude/settings.local.json` and `.claude/worktrees/` (Q11) — Claude Code runs in this folder, and its local settings hold machine paths and tool permissions that are nobody else's business. The project has no API keys by design (₹0 cap, local models), so any key-shaped string in a diff is a mistake.
 
-Enforcement: the `.gitignore` in D9 covers all of the above; `scripts/ci/repo_hygiene.py` (foundation; runs on every CI run, unguarded) fails the build if any tracked file matches those patterns, if a tracked file is larger than 2 MB (lockfiles excepted), or if a tracked file matches a key-shaped pattern (`sk-`, `hf_`, `ghp_`, `AKIA`). The vendor integrity check (D9 §Shared files, item 4) additionally fails if `VENDOR.lock` lists a `*ref_info*` or `*.csv` path. D3's `test_test_split_forbidden` and `test_no_test_files_on_disk` cover the loading side.
+Enforcement: the `.gitignore` in D9 covers all of the above; `scripts/ci/repo_hygiene.py` (foundation; runs on every CI run, unguarded) fails the build if a file matches those patterns, is larger than 2 MB (lockfiles excepted), matches a key-shaped pattern (`sk-`, `hf_`, `ghp_`, `AKIA`), or is tracked although `.gitignore` ignores it (force-added). It checks tracked files **and** untracked files that are not ignored, which is a superset of "tracked" and catches a file before it is ever added (B3, accepted). The vendor integrity check (D9 §Shared files, item 4) additionally fails if `VENDOR.lock` lists a `*ref_info*` or `*.csv` path. D3's `test_test_split_forbidden` and `test_no_test_files_on_disk` cover the loading side.
 
 Publishing the repository changes no decision above. The prompts, the vendored evaluator (MIT, attributed in `NOTICE`) and our own code (MIT) are publishable; the data and the runs are not.
+
+# Follow-ups
+
+Changes this version requires in files the architecture session does not own. Each one is the **foundation** session's, because M0 owns every file listed. None of them changes a decision; they make main match this document.
+
+| # | Owner | File | Exact change | Blocks |
+|---|---|---|---|---|
+| FU-1 | foundation | `scripts/ci/repo_hygiene.py` | Test-split rule: match the **file name**, not the path, and only data extensions (`.csv`, `.jsonl`, `.json`, `.parquet`, `.zip`, `.gz`, `.txt`) — §8.2 as revised. Run-output rule: anchor `runs/`, `mlruns/` at the repository root instead of matching any nested directory. | **M1** (data-eval cannot add `tests/data/test_ref_info_alignment.py` until this lands) |
+| FU-2 | foundation | `.gitignore` | Anchor `/runs/` and `/mlruns/` (Q7). The `.claude/` and cache entries already there are confirmed. | nothing; land with FU-1 |
+| FU-3 | foundation | `Makefile` | `serve-model`: replace the placeholder error with `set -a; eval "$$(uv run tripartite model serve-env --format sh)"; set +a; exec ollama serve >> runs/ollama-server.log 2>&1`, keeping the `configs/stack.yaml` guard (D4 §configs/stack.yaml). `openapi`: `mkdir -p api-contract` before writing. `test-local`: treat pytest exit code 5 as success and print `no local tests collected` (C). | **M3** (calibration needs the server), and `make test-local` for every session |
+| FU-4 | foundation | `src/tripartite/runlog/schema.py` | Add `RunManifest`, `MetricsSeed` and `Metrics` models (D7 §manifest.json, §metrics). Add the validator that `llm_call.query_id`/`.seed` may be null only when `role == "warmup"`. Add `EnvInfo.iogpu_wired_limit_mb` and `.gpu_recommended_max_working_set_bytes` (both nullable). Document the required `run_end.counts` keys. Regenerate `schema.json`. | **M4** |
+| FU-5 | foundation | `src/tripartite/runlog/reader.py` | Add `repair_tail(path) -> int` and the `tolerate_partial_tail` keyword (D7 §A crash can leave a half-written last line). | **M4** (resume) |
+| FU-6 | foundation | `src/tripartite/runlog/{mlflow_sync.py,cli.py}` | Build them per D7 §MLflow as milestone M6, after M4. Manual sync only; `tripartite log mlflow-sync --run <id>`. | nothing (not an exit criterion) |
+| FU-7 | foundation | `pyproject.toml` | Add `mlflow` to the runtime dependencies if M0 left it out, since D7 §MLflow needs it at M6; confirm `openapi-typescript` is **not** a Python dependency (it belongs to `web/package.json`, Q8). | M6 |
 
 # Brief issues
 
