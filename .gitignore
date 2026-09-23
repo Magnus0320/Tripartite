@@ -1,0 +1,33 @@
+# The repository is public. This file is a safety boundary, not tidiness
+# (ARCHITECTURE.md D9 and §8); scripts/ci/repo_hygiene.py enforces the same rules in CI.
+
+# --- ARCHITECTURE.md D9 ---
+.venv/
+evalenv/.venv/
+data/*
+!data/MANIFEST.json
+vendor/travelplanner/database/*
+!vendor/travelplanner/database/README.md
+runs/
+mlruns/
+web/node_modules/
+web/dist/
+*.log
+.env
+.env.*
+*.zip
+
+# --- Python and tool caches ---
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# --- Local machine and editor state ---
+.DS_Store
+.claude/settings.local.json
+.claude/worktrees/

@@ -1,0 +1,1421 @@
+{
+  "$defs": {
+    "AgentInfo": {
+      "additionalProperties": true,
+      "properties": {
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "model_tag": {
+          "title": "Model Tag",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "role",
+        "model_tag"
+      ],
+      "title": "AgentInfo",
+      "type": "object"
+    },
+    "DatasetInfo": {
+      "additionalProperties": true,
+      "properties": {
+        "files_sha256": {
+          "additionalProperties": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "title": "Files Sha256",
+          "type": "object"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "files_sha256"
+      ],
+      "title": "DatasetInfo",
+      "type": "object"
+    },
+    "EnvInfo": {
+      "additionalProperties": true,
+      "properties": {
+        "chip": {
+          "title": "Chip",
+          "type": "string"
+        },
+        "evalenv_lock_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Evalenv Lock Sha256",
+          "type": "string"
+        },
+        "git_commit": {
+          "title": "Git Commit",
+          "type": "string"
+        },
+        "git_dirty": {
+          "title": "Git Dirty",
+          "type": "boolean"
+        },
+        "macos": {
+          "title": "Macos",
+          "type": "string"
+        },
+        "ollama_env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Ollama Env",
+          "type": "object"
+        },
+        "python": {
+          "title": "Python",
+          "type": "string"
+        },
+        "uv_lock_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Uv Lock Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "python",
+        "uv_lock_sha256",
+        "evalenv_lock_sha256",
+        "git_commit",
+        "git_dirty",
+        "macos",
+        "chip",
+        "ollama_env"
+      ],
+      "title": "EnvInfo",
+      "type": "object"
+    },
+    "ErrorEvent": {
+      "additionalProperties": true,
+      "description": "An ``error`` line.",
+      "properties": {
+        "event_id": {
+          "format": "uuid4",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "error",
+          "default": "error",
+          "title": "Event Type",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "run_id": {
+          "pattern": "^[0-9]{8}T[0-9]{6}Z-(batch|single)-[0-9a-f]{8}-[0-9a-f]{4}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "traceback": {
+          "title": "Traceback",
+          "type": "string"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_id",
+        "seq",
+        "ts",
+        "run_id",
+        "type",
+        "message",
+        "traceback"
+      ],
+      "title": "ErrorEvent",
+      "type": "object"
+    },
+    "ErrorInfo": {
+      "additionalProperties": true,
+      "properties": {
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "message"
+      ],
+      "title": "ErrorInfo",
+      "type": "object"
+    },
+    "EvalEvent": {
+      "additionalProperties": true,
+      "description": "An ``eval`` line.",
+      "properties": {
+        "commonsense": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Commonsense"
+        },
+        "commonsense_pass": {
+          "title": "Commonsense Pass",
+          "type": "boolean"
+        },
+        "delivered": {
+          "title": "Delivered",
+          "type": "boolean"
+        },
+        "event_id": {
+          "format": "uuid4",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "eval",
+          "default": "eval",
+          "title": "Event Type",
+          "type": "string"
+        },
+        "final_pass": {
+          "title": "Final Pass",
+          "type": "boolean"
+        },
+        "hard": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Hard"
+        },
+        "hard_pass": {
+          "title": "Hard Pass",
+          "type": "boolean"
+        },
+        "query_id": {
+          "title": "Query Id",
+          "type": "string"
+        },
+        "run_id": {
+          "pattern": "^[0-9]{8}T[0-9]{6}Z-(batch|single)-[0-9a-f]{8}-[0-9a-f]{4}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_id",
+        "seq",
+        "ts",
+        "run_id",
+        "query_id",
+        "seed",
+        "delivered",
+        "commonsense",
+        "hard",
+        "commonsense_pass",
+        "hard_pass",
+        "final_pass"
+      ],
+      "title": "EvalEvent",
+      "type": "object"
+    },
+    "EvaluatorInfo": {
+      "additionalProperties": true,
+      "properties": {
+        "upstream_commit": {
+          "title": "Upstream Commit",
+          "type": "string"
+        },
+        "vendor_lock_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Vendor Lock Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "upstream_commit",
+        "vendor_lock_sha256"
+      ],
+      "title": "EvaluatorInfo",
+      "type": "object"
+    },
+    "LlmCallEvent": {
+      "additionalProperties": true,
+      "description": "An ``llm_call`` line.",
+      "properties": {
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "attempt": {
+          "minimum": 0,
+          "title": "Attempt",
+          "type": "integer"
+        },
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "done_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Done Reason"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "event_id": {
+          "format": "uuid4",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "llm_call",
+          "default": "llm_call",
+          "title": "Event Type",
+          "type": "string"
+        },
+        "output_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Output Text"
+        },
+        "parent_call_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Call Id"
+        },
+        "prompt_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Prompt Sha256",
+          "type": "string"
+        },
+        "query_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Query Id"
+        },
+        "request": {
+          "$ref": "#/$defs/LlmRequest"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "round": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Round"
+        },
+        "run_id": {
+          "pattern": "^[0-9]{8}T[0-9]{6}Z-(batch|single)-[0-9a-f]{8}-[0-9a-f]{4}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Seed"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "thinking_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thinking Text"
+        },
+        "timing_ms": {
+          "$ref": "#/$defs/TimingMs"
+        },
+        "tokens": {
+          "$ref": "#/$defs/TokenCounts"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_id",
+        "seq",
+        "ts",
+        "run_id",
+        "call_id",
+        "query_id",
+        "seed",
+        "agent_id",
+        "role",
+        "round",
+        "parent_call_id",
+        "attempt",
+        "request",
+        "prompt_sha256",
+        "tokens",
+        "timing_ms",
+        "done_reason",
+        "output_text",
+        "thinking_text",
+        "error"
+      ],
+      "title": "LlmCallEvent",
+      "type": "object"
+    },
+    "LlmRequest": {
+      "additionalProperties": true,
+      "properties": {
+        "endpoint": {
+          "title": "Endpoint",
+          "type": "string"
+        },
+        "min_p": {
+          "title": "Min P",
+          "type": "number"
+        },
+        "num_ctx": {
+          "minimum": 0,
+          "title": "Num Ctx",
+          "type": "integer"
+        },
+        "num_predict": {
+          "minimum": 0,
+          "title": "Num Predict",
+          "type": "integer"
+        },
+        "repeat_penalty": {
+          "title": "Repeat Penalty",
+          "type": "number"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "stop": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Stop",
+          "type": "array"
+        },
+        "temperature": {
+          "title": "Temperature",
+          "type": "number"
+        },
+        "think": {
+          "title": "Think",
+          "type": "boolean"
+        },
+        "top_k": {
+          "title": "Top K",
+          "type": "integer"
+        },
+        "top_p": {
+          "title": "Top P",
+          "type": "number"
+        }
+      },
+      "required": [
+        "endpoint",
+        "num_ctx",
+        "num_predict",
+        "temperature",
+        "top_p",
+        "top_k",
+        "min_p",
+        "repeat_penalty",
+        "seed",
+        "think",
+        "stop"
+      ],
+      "title": "LlmRequest",
+      "type": "object"
+    },
+    "ModelInfo": {
+      "additionalProperties": true,
+      "properties": {
+        "digest": {
+          "title": "Digest",
+          "type": "string"
+        },
+        "quant": {
+          "title": "Quant",
+          "type": "string"
+        },
+        "runtime": {
+          "title": "Runtime",
+          "type": "string"
+        },
+        "runtime_version": {
+          "title": "Runtime Version",
+          "type": "string"
+        },
+        "tag": {
+          "title": "Tag",
+          "type": "string"
+        },
+        "tokenizer_repo": {
+          "title": "Tokenizer Repo",
+          "type": "string"
+        },
+        "tokenizer_revision": {
+          "title": "Tokenizer Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runtime",
+        "runtime_version",
+        "tag",
+        "digest",
+        "quant",
+        "tokenizer_repo",
+        "tokenizer_revision"
+      ],
+      "title": "ModelInfo",
+      "type": "object"
+    },
+    "ParseEvent": {
+      "additionalProperties": true,
+      "description": "A ``parse`` line.",
+      "properties": {
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "event_id": {
+          "format": "uuid4",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "parse",
+          "default": "parse",
+          "title": "Event Type",
+          "type": "string"
+        },
+        "failure_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failure Reason"
+        },
+        "n_days": {
+          "minimum": 0,
+          "title": "N Days",
+          "type": "integer"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "parse_ms": {
+          "minimum": 0,
+          "title": "Parse Ms",
+          "type": "number"
+        },
+        "parser_version": {
+          "title": "Parser Version",
+          "type": "string"
+        },
+        "query_id": {
+          "title": "Query Id",
+          "type": "string"
+        },
+        "run_id": {
+          "pattern": "^[0-9]{8}T[0-9]{6}Z-(batch|single)-[0-9a-f]{8}-[0-9a-f]{4}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_id",
+        "seq",
+        "ts",
+        "run_id",
+        "query_id",
+        "seed",
+        "call_id",
+        "parser_version",
+        "ok",
+        "failure_reason",
+        "warnings",
+        "n_days",
+        "parse_ms"
+      ],
+      "title": "ParseEvent",
+      "type": "object"
+    },
+    "QueryResultEvent": {
+      "additionalProperties": true,
+      "description": "A ``query_result`` line.",
+      "properties": {
+        "event_id": {
+          "format": "uuid4",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "query_result",
+          "default": "query_result",
+          "title": "Event Type",
+          "type": "string"
+        },
+        "failure_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failure Reason"
+        },
+        "query_id": {
+          "title": "Query Id",
+          "type": "string"
+        },
+        "run_id": {
+          "pattern": "^[0-9]{8}T[0-9]{6}Z-(batch|single)-[0-9a-f]{8}-[0-9a-f]{4}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "delivered",
+            "not_delivered"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "totals": {
+          "$ref": "#/$defs/QueryTotals"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_id",
+        "seq",
+        "ts",
+        "run_id",
+        "query_id",
+        "seed",
+        "status",
+        "failure_reason",
+        "totals"
+      ],
+      "title": "QueryResultEvent",
+      "type": "object"
+    },
+    "QueryTotals": {
+      "additionalProperties": true,
+      "properties": {
+        "generation_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Generation Ms"
+        },
+        "input_tokens": {
+          "minimum": 0,
+          "title": "Input Tokens",
+          "type": "integer"
+        },
+        "llm_calls": {
+          "minimum": 0,
+          "title": "Llm Calls",
+          "type": "integer"
+        },
+        "load_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Load Ms"
+        },
+        "output_tokens": {
+          "minimum": 0,
+          "title": "Output Tokens",
+          "type": "integer"
+        },
+        "parse_ms": {
+          "minimum": 0,
+          "title": "Parse Ms",
+          "type": "number"
+        },
+        "prefill_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Prefill Ms"
+        },
+        "thinking_tokens": {
+          "minimum": 0,
+          "title": "Thinking Tokens",
+          "type": "integer"
+        },
+        "wall_ms": {
+          "minimum": 0,
+          "title": "Wall Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "input_tokens",
+        "output_tokens",
+        "thinking_tokens",
+        "llm_calls",
+        "wall_ms",
+        "prefill_ms",
+        "generation_ms",
+        "load_ms",
+        "parse_ms"
+      ],
+      "title": "QueryTotals",
+      "type": "object"
+    },
+    "RetrievalEvent": {
+      "additionalProperties": true,
+      "description": "A ``retrieval`` line.",
+      "properties": {
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "event_id": {
+          "format": "uuid4",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "retrieval",
+          "default": "retrieval",
+          "title": "Event Type",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "query_id": {
+          "title": "Query Id",
+          "type": "string"
+        },
+        "run_id": {
+          "pattern": "^[0-9]{8}T[0-9]{6}Z-(batch|single)-[0-9a-f]{8}-[0-9a-f]{4}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_id",
+        "seq",
+        "ts",
+        "run_id",
+        "call_id",
+        "agent_id",
+        "query_id",
+        "seed",
+        "payload"
+      ],
+      "title": "RetrievalEvent",
+      "type": "object"
+    },
+    "RunEndEvent": {
+      "additionalProperties": true,
+      "description": "A ``run_end`` line.",
+      "properties": {
+        "counts": {
+          "additionalProperties": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "title": "Counts",
+          "type": "object"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "event_id": {
+          "format": "uuid4",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "run_end",
+          "default": "run_end",
+          "title": "Event Type",
+          "type": "string"
+        },
+        "metrics_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Metrics Path"
+        },
+        "run_id": {
+          "pattern": "^[0-9]{8}T[0-9]{6}Z-(batch|single)-[0-9a-f]{8}-[0-9a-f]{4}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "interrupted"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_id",
+        "seq",
+        "ts",
+        "run_id",
+        "status",
+        "counts",
+        "metrics_path",
+        "error"
+      ],
+      "title": "RunEndEvent",
+      "type": "object"
+    },
+    "RunStartEvent": {
+      "additionalProperties": true,
+      "description": "A ``run_start`` line.",
+      "properties": {
+        "agents": {
+          "items": {
+            "$ref": "#/$defs/AgentInfo"
+          },
+          "title": "Agents",
+          "type": "array"
+        },
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "config_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Config Hash",
+          "type": "string"
+        },
+        "context_mode": {
+          "title": "Context Mode",
+          "type": "string"
+        },
+        "database_zip_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Database Zip Sha256",
+          "type": "string"
+        },
+        "dataset": {
+          "$ref": "#/$defs/DatasetInfo"
+        },
+        "env": {
+          "$ref": "#/$defs/EnvInfo"
+        },
+        "evaluator": {
+          "$ref": "#/$defs/EvaluatorInfo"
+        },
+        "event_id": {
+          "format": "uuid4",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "run_start",
+          "default": "run_start",
+          "title": "Event Type",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "batch",
+            "single"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "mode": {
+          "title": "Mode",
+          "type": "string"
+        },
+        "model": {
+          "$ref": "#/$defs/ModelInfo"
+        },
+        "order": {
+          "title": "Order",
+          "type": "string"
+        },
+        "parser_version": {
+          "title": "Parser Version",
+          "type": "string"
+        },
+        "prompt_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Prompt Sha256",
+          "type": "string"
+        },
+        "prompt_version": {
+          "title": "Prompt Version",
+          "type": "string"
+        },
+        "query_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Query Ids",
+          "type": "array"
+        },
+        "resumed_from": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9]{8}T[0-9]{6}Z-(batch|single)-[0-9a-f]{8}-[0-9a-f]{4}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resumed From"
+        },
+        "run_id": {
+          "pattern": "^[0-9]{8}T[0-9]{6}Z-(batch|single)-[0-9a-f]{8}-[0-9a-f]{4}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "seeds": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Seeds",
+          "type": "array"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "split": {
+          "title": "Split",
+          "type": "string"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_id",
+        "seq",
+        "ts",
+        "run_id",
+        "kind",
+        "mode",
+        "context_mode",
+        "split",
+        "query_ids",
+        "seeds",
+        "order",
+        "config",
+        "config_hash",
+        "model",
+        "prompt_version",
+        "prompt_sha256",
+        "parser_version",
+        "evaluator",
+        "dataset",
+        "database_zip_sha256",
+        "env",
+        "agents",
+        "resumed_from"
+      ],
+      "title": "RunStartEvent",
+      "type": "object"
+    },
+    "TimingMs": {
+      "additionalProperties": true,
+      "properties": {
+        "generation": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Generation"
+        },
+        "load": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Load"
+        },
+        "prefill": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Prefill"
+        },
+        "total_reported": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total Reported"
+        },
+        "wall_client": {
+          "minimum": 0,
+          "title": "Wall Client",
+          "type": "number"
+        }
+      },
+      "required": [
+        "load",
+        "prefill",
+        "generation",
+        "total_reported",
+        "wall_client"
+      ],
+      "title": "TimingMs",
+      "type": "object"
+    },
+    "TokenCounts": {
+      "additionalProperties": true,
+      "properties": {
+        "input": {
+          "minimum": 0,
+          "title": "Input",
+          "type": "integer"
+        },
+        "input_cached_reported": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Input Cached Reported"
+        },
+        "input_reported": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Input Reported"
+        },
+        "output_reported": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Output Reported"
+        },
+        "output_thinking": {
+          "minimum": 0,
+          "title": "Output Thinking",
+          "type": "integer"
+        },
+        "output_visible": {
+          "minimum": 0,
+          "title": "Output Visible",
+          "type": "integer"
+        },
+        "tokenizer": {
+          "title": "Tokenizer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "input",
+        "input_reported",
+        "input_cached_reported",
+        "output_visible",
+        "output_thinking",
+        "output_reported",
+        "tokenizer"
+      ],
+      "title": "TokenCounts",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "error": "#/$defs/ErrorEvent",
+      "eval": "#/$defs/EvalEvent",
+      "llm_call": "#/$defs/LlmCallEvent",
+      "parse": "#/$defs/ParseEvent",
+      "query_result": "#/$defs/QueryResultEvent",
+      "retrieval": "#/$defs/RetrievalEvent",
+      "run_end": "#/$defs/RunEndEvent",
+      "run_start": "#/$defs/RunStartEvent"
+    },
+    "propertyName": "event_type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/RunStartEvent"
+    },
+    {
+      "$ref": "#/$defs/LlmCallEvent"
+    },
+    {
+      "$ref": "#/$defs/ParseEvent"
+    },
+    {
+      "$ref": "#/$defs/EvalEvent"
+    },
+    {
+      "$ref": "#/$defs/QueryResultEvent"
+    },
+    {
+      "$ref": "#/$defs/RetrievalEvent"
+    },
+    {
+      "$ref": "#/$defs/RunEndEvent"
+    },
+    {
+      "$ref": "#/$defs/ErrorEvent"
+    }
+  ],
+  "title": "Tripartite run-log event (ARCHITECTURE.md D7)"
+}
