@@ -8,8 +8,8 @@ data/*
 !data/MANIFEST.json
 vendor/travelplanner/database/*
 !vendor/travelplanner/database/README.md
-runs/
-mlruns/
+/runs/
+/mlruns/
 web/node_modules/
 web/dist/
 *.log
@@ -23,6 +23,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+.import_linter_cache/
 *.egg-info/
 dist/
 build/

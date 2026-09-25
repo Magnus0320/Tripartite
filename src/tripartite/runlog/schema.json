@@ -67,6 +67,30 @@
           "title": "Git Dirty",
           "type": "boolean"
         },
+        "gpu_recommended_max_working_set_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Gpu Recommended Max Working Set Bytes"
+        },
+        "iogpu_wired_limit_mb": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Iogpu Wired Limit Mb"
+        },
         "macos": {
           "title": "Macos",
           "type": "string"
@@ -96,7 +120,9 @@
         "git_dirty",
         "macos",
         "chip",
-        "ollama_env"
+        "ollama_env",
+        "iogpu_wired_limit_mb",
+        "gpu_recommended_max_working_set_bytes"
       ],
       "title": "EnvInfo",
       "type": "object"
@@ -355,6 +381,31 @@
       "title": "EvaluatorInfo",
       "type": "object"
     },
+    "LatencyStats": {
+      "additionalProperties": true,
+      "properties": {
+        "generation": {
+          "$ref": "#/$defs/Stats"
+        },
+        "load": {
+          "$ref": "#/$defs/Stats"
+        },
+        "prefill": {
+          "$ref": "#/$defs/Stats"
+        },
+        "wall": {
+          "$ref": "#/$defs/Stats"
+        }
+      },
+      "required": [
+        "wall",
+        "load",
+        "prefill",
+        "generation"
+      ],
+      "title": "LatencyStats",
+      "type": "object"
+    },
     "LlmCallEvent": {
       "additionalProperties": true,
       "description": "An ``llm_call`` line.",
@@ -604,6 +655,232 @@
       "title": "LlmRequest",
       "type": "object"
     },
+    "MetricSummary": {
+      "additionalProperties": true,
+      "properties": {
+        "mean": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Mean",
+          "type": "number"
+        },
+        "per_seed": {
+          "patternProperties": {
+            "^-?[0-9]+$": {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            }
+          },
+          "title": "Per Seed",
+          "type": "object"
+        },
+        "sd": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sd"
+        }
+      },
+      "required": [
+        "per_seed",
+        "mean",
+        "sd"
+      ],
+      "title": "MetricSummary",
+      "type": "object"
+    },
+    "Metrics": {
+      "additionalProperties": true,
+      "description": "``runs/<run_id>/metrics.json`` (D7): the summary across seeds.",
+      "properties": {
+        "config_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Config Hash",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "finished_at": {
+          "format": "date-time",
+          "title": "Finished At",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "batch",
+            "single"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "latency_ms": {
+          "$ref": "#/$defs/LatencyStats"
+        },
+        "metrics": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetricSummary"
+          },
+          "propertyNames": {
+            "enum": [
+              "Delivery Rate",
+              "Commonsense Constraint Micro Pass Rate",
+              "Commonsense Constraint Macro Pass Rate",
+              "Hard Constraint Micro Pass Rate",
+              "Hard Constraint Macro Pass Rate",
+              "Final Pass Rate"
+            ]
+          },
+          "title": "Metrics",
+          "type": "object"
+        },
+        "n_queries": {
+          "minimum": 0,
+          "title": "N Queries",
+          "type": "integer"
+        },
+        "non_delivery": {
+          "additionalProperties": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "title": "Non Delivery",
+          "type": "object"
+        },
+        "parse": {
+          "$ref": "#/$defs/ParseSummary"
+        },
+        "post_check_mode": {
+          "title": "Post Check Mode",
+          "type": "string"
+        },
+        "run_id": {
+          "pattern": "^[0-9]{8}T[0-9]{6}Z-(batch|single)-[0-9a-f]{8}-[0-9a-f]{4}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "seeds": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Seeds",
+          "type": "array"
+        },
+        "subset": {
+          "title": "Subset",
+          "type": "boolean"
+        },
+        "tokens": {
+          "$ref": "#/$defs/TokenStats"
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id",
+        "kind",
+        "config_hash",
+        "created_at",
+        "finished_at",
+        "subset",
+        "n_queries",
+        "seeds",
+        "post_check_mode",
+        "metrics",
+        "non_delivery",
+        "parse",
+        "tokens",
+        "latency_ms"
+      ],
+      "title": "Metrics",
+      "type": "object"
+    },
+    "MetricsSeed": {
+      "additionalProperties": true,
+      "description": "``runs/<run_id>/metrics_seed{n}.json`` (D7).",
+      "properties": {
+        "detailed": {
+          "additionalProperties": true,
+          "title": "Detailed",
+          "type": "object"
+        },
+        "n_queries": {
+          "minimum": 0,
+          "title": "N Queries",
+          "type": "integer"
+        },
+        "run_id": {
+          "pattern": "^[0-9]{8}T[0-9]{6}Z-(batch|single)-[0-9a-f]{8}-[0-9a-f]{4}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "scores": {
+          "additionalProperties": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "propertyNames": {
+            "enum": [
+              "Delivery Rate",
+              "Commonsense Constraint Micro Pass Rate",
+              "Commonsense Constraint Macro Pass Rate",
+              "Hard Constraint Micro Pass Rate",
+              "Hard Constraint Macro Pass Rate",
+              "Final Pass Rate"
+            ]
+          },
+          "title": "Scores",
+          "type": "object"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "source": {
+          "enum": [
+            "official_eval_score",
+            "subset_aggregate"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "subset": {
+          "title": "Subset",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id",
+        "seed",
+        "subset",
+        "n_queries",
+        "source",
+        "scores",
+        "detailed"
+      ],
+      "title": "MetricsSeed",
+      "type": "object"
+    },
     "ModelInfo": {
       "additionalProperties": true,
       "properties": {
@@ -749,6 +1026,55 @@
         "parse_ms"
       ],
       "title": "ParseEvent",
+      "type": "object"
+    },
+    "ParseSummary": {
+      "additionalProperties": true,
+      "properties": {
+        "attempted": {
+          "minimum": 0,
+          "title": "Attempted",
+          "type": "integer"
+        },
+        "failure_rate": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Failure Rate",
+          "type": "number"
+        },
+        "ok": {
+          "minimum": 0,
+          "title": "Ok",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "attempted",
+        "ok",
+        "failure_rate"
+      ],
+      "title": "ParseSummary",
+      "type": "object"
+    },
+    "Progress": {
+      "additionalProperties": true,
+      "properties": {
+        "done": {
+          "minimum": 0,
+          "title": "Done",
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "done",
+        "total"
+      ],
+      "title": "Progress",
       "type": "object"
     },
     "QueryResultEvent": {
@@ -997,6 +1323,7 @@
             "minimum": 0,
             "type": "integer"
           },
+          "description": "Must contain at least: queries, seeds, pairs_total, pairs_done, delivered, llm_calls, errors (D7).",
           "title": "Counts",
           "type": "object"
         },
@@ -1074,6 +1401,265 @@
         "error"
       ],
       "title": "RunEndEvent",
+      "type": "object"
+    },
+    "RunManifest": {
+      "additionalProperties": true,
+      "description": "``runs/<run_id>/manifest.json`` (D7): the run_start payload plus the live status.\n\nThe one mutable file of a run while it is in progress. Every update rewrites it\natomically (temp file plus ``os.replace``). ``status`` and ``stage`` are exactly what\nD8's ``RunDetail`` reports.",
+      "properties": {
+        "created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created At"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Finished At"
+        },
+        "metrics_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Metrics Path"
+        },
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        },
+        "repaired_tail_bytes": {
+          "minimum": 0,
+          "title": "Repaired Tail Bytes",
+          "type": "integer"
+        },
+        "resumed": {
+          "title": "Resumed",
+          "type": "boolean"
+        },
+        "run_start": {
+          "$ref": "#/$defs/RunStart"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "stage": {
+          "anyOf": [
+            {
+              "enum": [
+                "queued",
+                "generating",
+                "parsing",
+                "evaluating",
+                "done"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stage"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "interrupted"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated At"
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_start",
+        "status",
+        "stage",
+        "created_at",
+        "updated_at",
+        "finished_at",
+        "progress",
+        "resumed",
+        "repaired_tail_bytes",
+        "metrics_path",
+        "error"
+      ],
+      "title": "RunManifest",
+      "type": "object"
+    },
+    "RunStart": {
+      "additionalProperties": true,
+      "properties": {
+        "agents": {
+          "items": {
+            "$ref": "#/$defs/AgentInfo"
+          },
+          "title": "Agents",
+          "type": "array"
+        },
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "config_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Config Hash",
+          "type": "string"
+        },
+        "context_mode": {
+          "title": "Context Mode",
+          "type": "string"
+        },
+        "database_zip_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Database Zip Sha256",
+          "type": "string"
+        },
+        "dataset": {
+          "$ref": "#/$defs/DatasetInfo"
+        },
+        "env": {
+          "$ref": "#/$defs/EnvInfo"
+        },
+        "evaluator": {
+          "$ref": "#/$defs/EvaluatorInfo"
+        },
+        "event_type": {
+          "const": "run_start",
+          "default": "run_start",
+          "title": "Event Type",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "batch",
+            "single"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "mode": {
+          "title": "Mode",
+          "type": "string"
+        },
+        "model": {
+          "$ref": "#/$defs/ModelInfo"
+        },
+        "order": {
+          "title": "Order",
+          "type": "string"
+        },
+        "parser_version": {
+          "title": "Parser Version",
+          "type": "string"
+        },
+        "prompt_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Prompt Sha256",
+          "type": "string"
+        },
+        "prompt_version": {
+          "title": "Prompt Version",
+          "type": "string"
+        },
+        "query_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Query Ids",
+          "type": "array"
+        },
+        "resumed_from": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9]{8}T[0-9]{6}Z-(batch|single)-[0-9a-f]{8}-[0-9a-f]{4}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resumed From"
+        },
+        "seeds": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Seeds",
+          "type": "array"
+        },
+        "split": {
+          "title": "Split",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "mode",
+        "context_mode",
+        "split",
+        "query_ids",
+        "seeds",
+        "order",
+        "config",
+        "config_hash",
+        "model",
+        "prompt_version",
+        "prompt_sha256",
+        "parser_version",
+        "evaluator",
+        "dataset",
+        "database_zip_sha256",
+        "env",
+        "agents",
+        "resumed_from"
+      ],
+      "title": "RunStart",
       "type": "object"
     },
     "RunStartEvent": {
@@ -1238,6 +1824,55 @@
       "title": "RunStartEvent",
       "type": "object"
     },
+    "Stats": {
+      "additionalProperties": true,
+      "description": "Over the per-(query, seed) values, warm-ups excluded. Null over an empty or all-null set.",
+      "properties": {
+        "mean": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Mean"
+        },
+        "median": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Median"
+        },
+        "p95": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "P95"
+        }
+      },
+      "required": [
+        "mean",
+        "median",
+        "p95"
+      ],
+      "title": "Stats",
+      "type": "object"
+    },
     "TimingMs": {
       "additionalProperties": true,
       "properties": {
@@ -1375,9 +2010,31 @@
       ],
       "title": "TokenCounts",
       "type": "object"
+    },
+    "TokenStats": {
+      "additionalProperties": true,
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/Stats"
+        },
+        "output": {
+          "$ref": "#/$defs/Stats"
+        },
+        "thinking": {
+          "$ref": "#/$defs/Stats"
+        }
+      },
+      "required": [
+        "input",
+        "output",
+        "thinking"
+      ],
+      "title": "TokenStats",
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The root validates one events.jsonl line. $defs/RunManifest, $defs/MetricsSeed and $defs/Metrics describe manifest.json, metrics_seed{n}.json and metrics.json.",
   "discriminator": {
     "mapping": {
       "error": "#/$defs/ErrorEvent",

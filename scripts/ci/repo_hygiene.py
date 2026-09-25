@@ -4,10 +4,14 @@ The repository is public. This fails if any file that is tracked, or that could 
 (untracked and not ignored), is something §8 says is never committed:
 
 1. dataset files: anything under data/ except data/MANIFEST.json;
-2. test-split artefacts: test.csv, test_ref_info.jsonl, or any path matching *test*ref_info*;
+2. test-split artefacts, matched on the file name only: test.csv, test_ref_info.jsonl, or a
+   name matching *test*ref_info* with a data extension (.csv .jsonl .json .parquet .zip .gz
+   .txt), so source and test files such as tests/data/test_ref_info_alignment.py are fine;
 3. the sandbox database: anything under vendor/travelplanner/database/ except its README.md;
-4. run output: anything under a runs/ or mlruns/ directory;
-5. secrets: .env and .env.* files, and key-shaped strings (sk-, hf_, ghp_, AKIA).
+4. run output: anything under the repository-root runs/ or mlruns/ directories (a directory
+   called runs elsewhere, such as web/src/runs/, is unaffected);
+5. secrets and local agent state: .env and .env.* files, .claude/settings.local.json,
+   .claude/worktrees/, and key-shaped strings (sk-, hf_, ghp_, AKIA).
 
 It also fails on a tracked file that .gitignore ignores (force-added), and on any file larger
 than 2 MB except lockfiles. Standard library only. Run from anywhere inside the repository:
@@ -22,6 +26,7 @@ import sys
 from pathlib import Path, PurePosixPath
 
 MAX_BYTES = 2_000_000
+DATA_EXTENSIONS = frozenset({".csv", ".jsonl", ".json", ".parquet", ".zip", ".gz", ".txt"})
 LOCKFILES = frozenset({"uv.lock", "package-lock.json"})
 KEY_PATTERNS = {
     "sk-": re.compile(rb"\bsk-[A-Za-z0-9_-]{20,}"),
@@ -43,8 +48,10 @@ def path_violations(path: str) -> list[str]:
     reasons = []
     if parts[0] == "data" and path != "data/MANIFEST.json":
         reasons.append("dataset file under data/ (§8.1)")
-    if name.lower() in {"test.csv", "test_ref_info.jsonl"} or fnmatch.fnmatchcase(
-        path.lower(), "*test*ref_info*"
+    lower = name.lower()
+    if lower in {"test.csv", "test_ref_info.jsonl"} or (
+        fnmatch.fnmatchcase(lower, "*test*ref_info*")
+        and PurePosixPath(lower).suffix in DATA_EXTENSIONS
     ):
         reasons.append("test-split artefact (§8.2)")
     if (
@@ -52,10 +59,12 @@ def path_violations(path: str) -> list[str]:
         and path != "vendor/travelplanner/database/README.md"
     ):
         reasons.append("sandbox database (§8.3)")
-    if {"runs", "mlruns"} & set(parts[:-1]):
-        reasons.append("run output under runs/ or mlruns/ (§8.4)")
+    if len(parts) > 1 and parts[0] in {"runs", "mlruns"}:
+        reasons.append("run output under the root runs/ or mlruns/ (§8.4)")
     if name == ".env" or name.startswith(".env."):
         reasons.append(".env file (§8.5)")
+    if path == ".claude/settings.local.json" or path.startswith(".claude/worktrees/"):
+        reasons.append("local Claude Code state (§8.5)")
     return reasons
 
 
