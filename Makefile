@@ -3,8 +3,9 @@
 # Inputs that a later milestone creates are guarded by the existence of their path
 # (D9 §Shared files, item 2). A guarded step inside a larger target prints
 # "skipped: <path> not present yet" and the target carries on. A guarded target
-# invoked by name prints the same line and exits 1, so a skip is never mistaken
-# for success. Every guard becomes mandatory as soon as its path exists.
+# invoked by name prints the same line and its recipe exits 1, so make itself exits 2
+# and a skip is never mistaken for success. Every guard becomes mandatory as soon as
+# its path exists.
 
 CONFIG ?= configs/baseline.yaml
 RUN ?=
@@ -31,13 +32,11 @@ setup:
 	$(call guarded_step,evalenv/pyproject.toml,uv sync --project evalenv)
 	$(call guarded_step,web/package.json,npm ci --prefix web)
 
-# D4 server: `ollama serve` on 127.0.0.1:11435 with the pinned env, log in runs/ollama-server.log.
-# The env comes from configs/stack.yaml (M3). How the Makefile reads it is not yet specified in
-# ARCHITECTURE.md (M0 PR, Architecture question 1), so once the file exists this target stops
-# with an explicit error instead of guessing the file's layout.
+# D4 server (D4 §configs/stack.yaml): the model session's `tripartite model serve-env` validates
+# configs/stack.yaml and prints runtime.env as shell exports; the Makefile never parses YAML.
 serve-model:
 	$(call require,configs/stack.yaml)
-	@echo 'serve-model: reading the D4 server env from configs/stack.yaml is not specified yet (ARCHITECTURE.md D9; M0 Architecture question 1)' >&2; exit 1
+	set -a; eval "$$(uv run tripartite model serve-env --format sh)"; set +a; exec ollama serve >> runs/ollama-server.log 2>&1
 
 pull-model:
 	$(TRIPARTITE) model pull
@@ -73,8 +72,9 @@ reproduce-check:
 test:
 	uv run pytest -m "not local"
 
+# pytest exits 5 when it collects no tests; until local tests exist that is not a failure (D9 C).
 test-local:
-	uv run pytest -m local
+	@echo 'uv run pytest -m local'; uv run pytest -m local || { rc=$$?; test $$rc -eq 5 || exit $$rc; echo 'no local tests collected'; }
 
 lint:
 	uv run ruff check
@@ -88,6 +88,7 @@ api:
 
 openapi:
 	$(call require,src/tripartite/api/cli.py)
+	mkdir -p api-contract
 	$(TRIPARTITE) api export-openapi > api-contract/openapi.json
 
 web:

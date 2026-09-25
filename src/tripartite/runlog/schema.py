@@ -1,4 +1,4 @@
-"""Run-log event schemas (ARCHITECTURE.md D7).
+"""Run-log schemas (ARCHITECTURE.md D7).
 
 Every line of ``runs/<run_id>/events.jsonl`` is one event: the envelope (``schema_version``,
 ``event_id``, ``seq``, ``ts``, ``run_id``, ``event_type``) followed by the payload of its
@@ -10,7 +10,11 @@ Writers build a payload model (``RunStart``, ``LlmCall``, ...) and pass it to
 ``RunLogWriter``, which adds the envelope. Readers get the flat ``*Event`` models, which carry
 both.
 
-The JSON Schema of the wire format is committed next to this file as ``schema.json``.
+The other files of a run directory have models here too: ``RunManifest`` (``manifest.json``),
+``MetricsSeed`` (``metrics_seed{n}.json``) and ``Metrics`` (``metrics.json``).
+
+The JSON Schema is committed next to this file as ``schema.json``. Its root validates one
+``events.jsonl`` line; ``RunManifest``, ``MetricsSeed`` and ``Metrics`` are under ``$defs``.
 Regenerate it after any change here::
 
     uv run python -m tripartite.runlog.schema > src/tripartite/runlog/schema.json
@@ -21,19 +25,22 @@ import secrets
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Annotated, Any, Final, Literal
+from typing import Annotated, Any, Final, Literal, Self, get_args
 
 from pydantic import (
     UUID4,
+    AfterValidator,
     AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
     NonNegativeFloat,
     NonNegativeInt,
+    SerializerFunctionWrapHandler,
     StringConstraints,
     TypeAdapter,
-    field_validator,
+    field_serializer,
+    model_validator,
 )
 
 SCHEMA_VERSION: Final = 1
@@ -43,12 +50,55 @@ SCHEMA_JSON_PATH: Final = Path(__file__).with_name("schema.json")
 RUN_ID_PATTERN: Final = r"^[0-9]{8}T[0-9]{6}Z-(batch|single)-[0-9a-f]{8}-[0-9a-f]{4}$"
 SHA256_PATTERN: Final = r"^[0-9a-f]{64}$"
 
+
+def _require_utc(value: datetime) -> datetime:
+    if value.utcoffset() != timedelta(0):
+        raise ValueError("timestamp must be in UTC")
+    return value.astimezone(UTC)
+
+
 RunId = Annotated[str, StringConstraints(pattern=RUN_ID_PATTERN)]
 Sha256 = Annotated[str, StringConstraints(pattern=SHA256_PATTERN)]
+UtcDatetime = Annotated[AwareDatetime, AfterValidator(_require_utc)]
+"""RFC 3339, UTC; serialized with a ``Z`` suffix."""
+Rate = Annotated[float, Field(ge=0.0, le=1.0)]
+"""A rate in [0, 1]. Rates are never percentages in stored files (D7)."""
+
 RunKind = Literal["batch", "single"]
+RunStatus = Literal["queued", "running", "succeeded", "failed", "interrupted"]
+RunStage = Literal["queued", "generating", "parsing", "evaluating", "done"]
+
+OfficialMetric = Literal[
+    "Delivery Rate",
+    "Commonsense Constraint Micro Pass Rate",
+    "Commonsense Constraint Macro Pass Rate",
+    "Hard Constraint Micro Pass Rate",
+    "Hard Constraint Macro Pass Rate",
+    "Final Pass Rate",
+]
+"""The six keys of the official ``eval_score`` result, verbatim (eval.py at e52c87f4)."""
+OFFICIAL_METRIC_KEYS: Final[tuple[str, ...]] = get_args(OfficialMetric)
+
+RUN_END_COUNT_KEYS: Final = (
+    "queries",
+    "seeds",
+    "pairs_total",
+    "pairs_done",
+    "delivered",
+    "llm_calls",
+    "errors",
+)
+"""Keys that ``run_end.counts`` MUST contain at least (D7). Documented, not validated."""
 
 ConstraintResult = tuple[bool | None, str | None]
 """One evaluator check as ``[value, message]``; a value of None means not applicable (A-014)."""
+
+
+def _all_official_keys[V](value: dict[OfficialMetric, V]) -> dict[OfficialMetric, V]:
+    missing = [key for key in OFFICIAL_METRIC_KEYS if key not in value]
+    if missing:
+        raise ValueError(f"missing official metric keys: {missing}")
+    return value
 
 
 class _Model(BaseModel):
@@ -88,6 +138,10 @@ class EnvInfo(_Model):
     macos: str
     chip: str
     ollama_env: dict[str, str]
+    iogpu_wired_limit_mb: NonNegativeInt | None
+    """``sysctl iogpu.wired_limit_mb`` (0 = macOS default); null if it could not be read."""
+    gpu_recommended_max_working_set_bytes: NonNegativeInt | None
+    """Metal ``recommendedMaxWorkingSetSize`` (A-005); null if it could not be read."""
 
 
 class AgentInfo(_Model):
@@ -179,8 +233,9 @@ class LlmCall(_Model):
     event_type: Literal["llm_call"] = "llm_call"
     call_id: str
     query_id: str | None
-    """Null for a call that belongs to no query, such as the warm-up."""
+    """Null only when ``role == "warmup"``."""
     seed: int | None
+    """Null only when ``role == "warmup"``."""
     agent_id: str
     role: str
     round: int | None
@@ -194,6 +249,12 @@ class LlmCall(_Model):
     output_text: str | None
     thinking_text: str | None
     error: ErrorInfo | None
+
+    @model_validator(mode="after")
+    def _query_and_seed_unless_warmup(self) -> Self:
+        if self.role != "warmup" and (self.query_id is None or self.seed is None):
+            raise ValueError('query_id and seed may be null only when role == "warmup"')
+        return self
 
 
 class ParseResult(_Model):
@@ -215,7 +276,9 @@ class EvalResult(_Model):
     seed: int
     delivered: bool
     commonsense: dict[str, ConstraintResult] | None
+    """Null when the plan was not delivered."""
     hard: dict[str, ConstraintResult] | None
+    """Null when the plan was not delivered, or when D5's gating skipped the hard group."""
     commonsense_pass: bool
     hard_pass: bool
     final_pass: bool
@@ -244,9 +307,20 @@ class Retrieval(_Model):
 
 
 class RunEnd(_Model):
+    """The last event of a run.
+
+    ``counts`` MUST contain at least the keys in ``RUN_END_COUNT_KEYS``: ``queries``,
+    ``seeds``, ``pairs_total``, ``pairs_done``, ``delivered``, ``llm_calls`` and ``errors``.
+    """
+
     event_type: Literal["run_end"] = "run_end"
     status: Literal["succeeded", "failed", "interrupted"]
-    counts: dict[str, NonNegativeInt]
+    counts: dict[str, NonNegativeInt] = Field(
+        description=(
+            "Must contain at least: queries, seeds, pairs_total, pairs_done, delivered, "
+            "llm_calls, errors (D7)."
+        )
+    )
     metrics_path: str | None
     error: ErrorInfo | None
 
@@ -275,17 +349,9 @@ class Envelope(_Model):
     event_id: UUID4
     seq: NonNegativeInt
     """Per run, from 0, contiguous."""
-    ts: AwareDatetime
-    """RFC 3339, UTC."""
+    ts: UtcDatetime
     run_id: RunId
     event_type: str
-
-    @field_validator("ts")
-    @classmethod
-    def _ts_is_utc(cls, value: datetime) -> datetime:
-        if value.utcoffset() != timedelta(0):
-            raise ValueError("ts must be in UTC")
-        return value.astimezone(UTC)
 
 
 ENVELOPE_FIELDS: Final = frozenset(Envelope.model_fields) - {"event_type"}
@@ -349,6 +415,125 @@ EVENT_TYPES: Final = frozenset(
     }
 )
 
+
+# --- manifest.json -------------------------------------------------------------------------
+
+
+class Progress(_Model):
+    done: NonNegativeInt
+    total: NonNegativeInt
+
+
+class RunManifest(_Model):
+    """``runs/<run_id>/manifest.json`` (D7): the run_start payload plus the live status.
+
+    The one mutable file of a run while it is in progress. Every update rewrites it
+    atomically (temp file plus ``os.replace``). ``status`` and ``stage`` are exactly what
+    D8's ``RunDetail`` reports.
+    """
+
+    schema_version: Literal[1]
+    run_start: RunStart
+    """The run_start payload without the envelope; ``event_type`` is not written."""
+    status: RunStatus
+    stage: RunStage | None
+    created_at: UtcDatetime | None
+    updated_at: UtcDatetime | None
+    finished_at: UtcDatetime | None
+    progress: Progress
+    resumed: bool
+    repaired_tail_bytes: NonNegativeInt
+    metrics_path: str | None
+    error: ErrorInfo | None
+
+    @field_serializer("run_start", mode="wrap")
+    def _run_start_without_envelope(
+        self, value: RunStart, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        data: dict[str, Any] = handler(value)
+        data.pop("event_type", None)
+        return data
+
+
+# --- metrics_seed{n}.json and metrics.json -------------------------------------------------
+
+OfficialScores = Annotated[dict[OfficialMetric, Rate], AfterValidator(_all_official_keys)]
+SeedKey = Annotated[str, StringConstraints(pattern=r"^-?[0-9]+$")]
+
+
+class MetricsSeed(_Model):
+    """``runs/<run_id>/metrics_seed{n}.json`` (D7)."""
+
+    schema_version: Literal[1]
+    run_id: RunId
+    seed: int
+    subset: bool
+    n_queries: NonNegativeInt
+    source: Literal["official_eval_score", "subset_aggregate"]
+    scores: OfficialScores
+    """The six official keys, verbatim, as rates in [0, 1]."""
+    detailed: dict[str, Any]
+    """``eval_score``'s second return value, or the subset equivalent."""
+
+
+class MetricSummary(_Model):
+    per_seed: dict[SeedKey, Rate]
+    mean: Rate
+    sd: NonNegativeFloat | None
+    """Sample SD (ddof=1); null with fewer than two seeds."""
+
+
+class Stats(_Model):
+    """Over the per-(query, seed) values, warm-ups excluded. Null over an empty or all-null set."""
+
+    mean: NonNegativeFloat | None
+    median: NonNegativeFloat | None
+    p95: NonNegativeFloat | None
+    """Nearest rank: index ``ceil(0.95 n) - 1`` of the sorted values."""
+
+
+class TokenStats(_Model):
+    input: Stats
+    output: Stats
+    thinking: Stats
+
+
+class LatencyStats(_Model):
+    wall: Stats
+    load: Stats
+    prefill: Stats
+    generation: Stats
+
+
+class ParseSummary(_Model):
+    attempted: NonNegativeInt
+    ok: NonNegativeInt
+    failure_rate: Rate
+
+
+class Metrics(_Model):
+    """``runs/<run_id>/metrics.json`` (D7): the summary across seeds."""
+
+    schema_version: Literal[1]
+    run_id: RunId
+    kind: RunKind
+    config_hash: Sha256
+    created_at: UtcDatetime
+    finished_at: UtcDatetime
+    subset: bool
+    n_queries: NonNegativeInt
+    seeds: list[int]
+    post_check_mode: str
+    metrics: Annotated[dict[OfficialMetric, MetricSummary], AfterValidator(_all_official_keys)]
+    non_delivery: dict[str, NonNegativeInt]
+    """Failure reason -> count."""
+    parse: ParseSummary
+    tokens: TokenStats
+    latency_ms: LatencyStats
+
+
+# --- helpers and the committed JSON Schema -------------------------------------------------
+
 _RUN_ID_ADAPTER: Final[TypeAdapter[str]] = TypeAdapter(RunId)
 
 
@@ -368,11 +553,28 @@ def new_run_id(kind: RunKind, config_hash: str, *, now: datetime | None = None) 
 
 
 def json_schema() -> dict[str, Any]:
-    """The JSON Schema (draft 2020-12) of one ``events.jsonl`` line."""
+    """The JSON Schema (draft 2020-12) committed as ``schema.json``.
+
+    The root validates one ``events.jsonl`` line. ``$defs/RunManifest``,
+    ``$defs/MetricsSeed`` and ``$defs/Metrics`` describe the other run-directory files.
+    """
+    schemas, definitions = TypeAdapter.json_schemas(
+        [
+            ("event", "validation", EVENT_ADAPTER),
+            ("manifest", "validation", TypeAdapter(RunManifest)),
+            ("metrics_seed", "validation", TypeAdapter(MetricsSeed)),
+            ("metrics", "validation", TypeAdapter(Metrics)),
+        ]
+    )
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "Tripartite run-log event (ARCHITECTURE.md D7)",
-        **EVENT_ADAPTER.json_schema(),
+        "description": (
+            "The root validates one events.jsonl line. $defs/RunManifest, $defs/MetricsSeed "
+            "and $defs/Metrics describe manifest.json, metrics_seed{n}.json and metrics.json."
+        ),
+        **schemas[("event", "validation")],
+        **definitions,
     }
 
 

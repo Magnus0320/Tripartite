@@ -1,9 +1,11 @@
-"""Representative payloads for every D7 event type, shared by the runlog tests."""
+"""Representative payloads and run-directory files (D7), shared by the runlog tests."""
 
 from datetime import UTC, datetime
 from typing import Any
 
 from tripartite.runlog.schema import (
+    OFFICIAL_METRIC_KEYS,
+    RUN_END_COUNT_KEYS,
     AgentInfo,
     DatasetInfo,
     EnvInfo,
@@ -11,18 +13,27 @@ from tripartite.runlog.schema import (
     EvalResult,
     EvaluatorInfo,
     HardError,
+    LatencyStats,
     LlmCall,
     LlmRequest,
+    Metrics,
+    MetricsSeed,
+    MetricSummary,
     ModelInfo,
     ParseResult,
+    ParseSummary,
     Payload,
+    Progress,
     QueryResult,
     QueryTotals,
     Retrieval,
     RunEnd,
+    RunManifest,
     RunStart,
+    Stats,
     TimingMs,
     TokenCounts,
+    TokenStats,
 )
 
 SHA = "ab" * 32
@@ -75,6 +86,8 @@ def run_start() -> RunStart:
             macos="26.0",
             chip="Apple M4 Pro",
             ollama_env={"OLLAMA_NUM_PARALLEL": "1", "OLLAMA_CONTEXT_LENGTH": "32768"},
+            iogpu_wired_limit_mb=0,
+            gpu_recommended_max_working_set_bytes=17_179_869_184,
         ),
         agents=[AgentInfo(agent_id="planner", role="planner", model_tag="qwen3:8b-q4_K_M")],
         resumed_from=None,
@@ -126,7 +139,7 @@ def llm_call(**extra: Any) -> LlmCall:
             wall_client=38100.0,
         ),
         done_reason="stop",
-        output_text="Day 1:\nCurrent City: from Ithaca to Charlotte\n",
+        output_text="Day 1:\nCurrent City: from Ithaca to Charlotte\nBreakfast: Café → Charlotte\n",
         thinking_text=None,
         error=None,
         **extra,
@@ -276,7 +289,7 @@ def retrieval() -> Retrieval:
 def run_end() -> RunEnd:
     return RunEnd(
         status="failed",
-        counts={"query_results": 1, "llm_calls": 3},
+        counts=dict.fromkeys(RUN_END_COUNT_KEYS, 1) | {"llm_calls": 3},
         metrics_path=None,
         error=ErrorInfo(type="TruncationError", message="prompt_eval_count below bound"),
     )
@@ -306,3 +319,65 @@ def all_payloads() -> list[Payload]:
         hard_error(),
         run_end(),
     ]
+
+
+def manifest(**overrides: Any) -> RunManifest:
+    fields: dict[str, Any] = {
+        "schema_version": 1,
+        "run_start": run_start(),
+        "status": "running",
+        "stage": "generating",
+        "created_at": T0,
+        "updated_at": T0,
+        "finished_at": None,
+        "progress": Progress(done=1, total=6),
+        "resumed": True,
+        "repaired_tail_bytes": 37,
+        "metrics_path": None,
+        "error": None,
+    }
+    return RunManifest(**(fields | overrides))
+
+
+def _scores(value: float) -> dict[str, float]:
+    return dict.fromkeys(OFFICIAL_METRIC_KEYS, value)
+
+
+def metrics_seed(**overrides: Any) -> MetricsSeed:
+    fields: dict[str, Any] = {
+        "schema_version": 1,
+        "run_id": RUN_ID,
+        "seed": 0,
+        "subset": True,
+        "n_queries": 9,
+        "source": "subset_aggregate",
+        "scores": _scores(0.5) | {"Final Pass Rate": 0.0},
+        "detailed": {"Commonsense Constraint": {"easy": {"3": {}}}, "Hard Constraint": {}},
+    }
+    return MetricsSeed(**(fields | overrides))
+
+
+def metrics(**overrides: Any) -> Metrics:
+    stats = Stats(mean=1200.5, median=1100.0, p95=2000.0)
+    empty = Stats(mean=None, median=None, p95=None)
+    fields: dict[str, Any] = {
+        "schema_version": 1,
+        "run_id": RUN_ID,
+        "kind": "batch",
+        "config_hash": SHA,
+        "created_at": T0,
+        "finished_at": T0,
+        "subset": True,
+        "n_queries": 9,
+        "seeds": [0, 1, 2],
+        "post_check_mode": "total",
+        "metrics": {
+            key: MetricSummary(per_seed={"0": 0.5, "1": 0.25, "2": 0.75}, mean=0.5, sd=0.25)
+            for key in OFFICIAL_METRIC_KEYS
+        },
+        "non_delivery": {"no_day_blocks": 2, "llm_error": 1},
+        "parse": ParseSummary(attempted=27, ok=25, failure_rate=2 / 27),
+        "tokens": TokenStats(input=stats, output=stats, thinking=empty),
+        "latency_ms": LatencyStats(wall=stats, load=empty, prefill=stats, generation=stats),
+    }
+    return Metrics(**(fields | overrides))
