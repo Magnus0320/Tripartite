@@ -152,3 +152,17 @@ Append-only. Never edit or delete an entry. To change one, add a new entry that 
 - Why needed: The cold probes in D4 calibration are uncached by construction only if unloading clears the cache.
 - How to check: During calibration, every cold probe must show the model absent from `/api/ps` before the call and `load_duration > 0` in the response. Otherwise the calibration fails. The fallback (an architecture question, not a Code-session choice) is to restart the dedicated server before each cold probe.
 - Status: open
+
+### A-022
+- Date: 2026-09-23 · Architecture: v0.4
+- Assumption: A dedicated `ollama serve` started with the `runtime.env` block of `configs/stack.yaml` honours those variables, and the running server exposes enough through its HTTP API (`/api/ps`, `/api/show`, `/api/version`) for `tripartite model doctor` to confirm the effective context length and the loaded model's digest, rather than trusting the env it exported.
+- Why needed: D4 §configs/stack.yaml makes doctor the gate that stops a run from using a server whose settings differ from the pins, which is what keeps the calibration (A-018, A-019) valid.
+- How to check: In Phase 0, start the server through `make serve-model`, then compare doctor's reported context length and digest with the values in `configs/stack.yaml`, and with the ggml init lines in `runs/ollama-server.log`. If the API does not expose the effective context length, doctor falls back to reading the server log and this assumption is retired by a new entry.
+- Status: open
+
+### A-023
+- Date: 2026-09-23 · Architecture: v0.4
+- Assumption: Because the run-log writer appends whole lines and fsyncs each one, a crash or a power loss can corrupt only the final line of `events.jsonl`, never an earlier one.
+- Why needed: D7's resume repair (Q10) truncates a bad final line and treats a bad line anywhere else as a hard error. If an earlier line could be corrupted, resume would silently skip completed work or misread it.
+- How to check: A foundation test kills a writer mid-line (or truncates a sample log at a random offset) and asserts that `repair_tail` restores a readable log whose event count equals the number of complete lines. Any real occurrence of a corrupt earlier line raises an architecture question.
+- Status: open
