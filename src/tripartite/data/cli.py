@@ -48,8 +48,12 @@ def fetch() -> None:
 @app.command()
 def verify() -> None:
     """Check data/MANIFEST.json, the dataset files and the database zip against the pins."""
+    try:
+        checks = manifest.verify()
+    except manifest.DataError as exc:
+        raise _fail("verify", [str(exc)]) from None
     problems: list[str] = []
-    for check in manifest.verify():
+    for check in checks:
         if check.ok:
             typer.echo(f"data verify: {check.label}: OK ({check.detail})")
         else:

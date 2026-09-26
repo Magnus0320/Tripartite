@@ -10,7 +10,16 @@ that the zip pin here and in the manifest agree with each other and with the D5 
 result. A zip that differs from the pin is an architecture question, never a reason to update
 the pin (A-013).
 
-Every path derives from ``DATA_DIR`` at call time, so tests can point it at a temporary folder.
+**``TRIPARTITE_DATA_DIR``** (D3 §Planner inputs in other sessions' tests). The data root is
+``<repo>/data`` unless this environment variable is set. If it is set, it must be an absolute
+path to an existing directory, and it replaces ``<repo>/data`` for every path below: ``raw/``
+with the two dataset files, ``MANIFEST.json`` and ``downloads/sandbox_database.zip``. Any other
+value raises ``DataError`` naming the variable. It is read at every call, never at import, so a
+test can set it with ``monkeypatch.setenv``. The loaders do not check the manifest, so a tree
+holding only ``raw/`` loads; ``tripartite data verify`` is the only thing that checks the pins.
+Tests in other sessions point it at the shared synthetic set written by
+``tests.fixtures.synthetic_data.write_synthetic_data_dir`` and never patch this module.
+``DATA_DIR`` is only the default.
 """
 
 import hashlib
@@ -23,8 +32,9 @@ from typing import Annotated, Final, Literal
 from pydantic import BaseModel, ConfigDict, NonNegativeInt, StringConstraints, ValidationError
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[3]
-DATA_DIR = REPO_ROOT / "data"
-"""Root of the data tree. Deliberately not ``Final``: tests monkeypatch it."""
+DATA_DIR: Final = REPO_ROOT / "data"
+"""The default data root, used when ``TRIPARTITE_DATA_DIR`` is unset. Call ``data_dir()``."""
+DATA_DIR_ENV: Final = "TRIPARTITE_DATA_DIR"
 
 HF_REPO_ID: Final = "osunlp/TravelPlanner"
 HF_REPO_TYPE: Final = "dataset"
@@ -41,7 +51,7 @@ Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 
 class DataError(RuntimeError):
-    """The data files or the manifest do not match the pins."""
+    """The data files or the manifest do not match the pins, or the data root is invalid."""
 
 
 class _Frozen(BaseModel):
@@ -87,16 +97,29 @@ DATABASE_ZIP_HOWTO: Final = (
 )
 
 
+def data_dir() -> Path:
+    """``$TRIPARTITE_DATA_DIR`` if set, else ``DATA_DIR``. Read at every call, never cached."""
+    value = os.environ.get(DATA_DIR_ENV)
+    if value is None:
+        return DATA_DIR
+    path = Path(value)
+    if not path.is_absolute():
+        raise DataError(f"{DATA_DIR_ENV} must be an absolute path, got {value!r}")
+    if not path.is_dir():
+        raise DataError(f"{DATA_DIR_ENV} must be an existing directory, got {value!r}")
+    return path
+
+
 def raw_dir() -> Path:
-    return DATA_DIR / "raw"
+    return data_dir() / "raw"
 
 
 def manifest_path() -> Path:
-    return DATA_DIR / "MANIFEST.json"
+    return data_dir() / "MANIFEST.json"
 
 
 def database_zip_path() -> Path:
-    return DATA_DIR / "downloads" / DATABASE_ZIP.name
+    return data_dir() / "downloads" / DATABASE_ZIP.name
 
 
 def display(path: Path) -> str:

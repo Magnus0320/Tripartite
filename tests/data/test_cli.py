@@ -65,6 +65,19 @@ def test_verify_fails_and_lists_every_problem(synthetic_raw: Path) -> None:
     assert result.output.splitlines()[-1] == "data verify: FAILED"
 
 
+@pytest.mark.parametrize("command", ["fetch", "verify"])
+def test_an_invalid_data_dir_variable_fails_with_its_name(
+    command: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TRIPARTITE_DATA_DIR", "data")
+
+    result = runner.invoke(app, [command])
+
+    assert result.exit_code == 1
+    assert f"data {command}: TRIPARTITE_DATA_DIR must be an absolute path" in result.output
+    assert result.output.splitlines()[-1] == f"data {command}: FAILED"
+
+
 @pytest.mark.usefixtures("hub", "synthetic_zip_pin")
 def test_the_root_cli_reaches_the_data_commands() -> None:
     assert runner.invoke(root_cli.app, ["data", "fetch"]).exit_code == 0
