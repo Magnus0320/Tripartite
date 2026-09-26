@@ -166,3 +166,26 @@ Append-only. Never edit or delete an entry. To change one, add a new entry that 
 - Why needed: D7's resume repair (Q10) truncates a bad final line and treats a bad line anywhere else as a hard error. If an earlier line could be corrupted, resume would silently skip completed work or misread it.
 - How to check: A foundation test kills a writer mid-line (or truncates a sample log at a random offset) and asserts that `repair_tail` restores a readable log whose event count equals the number of complete lines. Any real occurrence of a corrupt earlier line raises an architecture question.
 - Status: open
+
+### A-024
+- Date: 2026-09-26 · Architecture: v0.7
+- Confirms: A-007. Status of A-007 is now confirmed by this entry; A-007 itself is unchanged.
+- Assumption: Line i of `validation_ref_info.jsonl` belongs to row i of `validation.csv` at HF revision 8736504e, and the reference-info file is byte-identical to `database/validation_ref_info.jsonl` in the GitHub repo at e52c87f4.
+- Why needed: `PlannerInput` pairs a query with its reference info by position (D3).
+- How it was checked (M1, merged in 7d5303f): (1) Identity by git blob id rather than sha256, because GitHub exposes no sha256 for a plain blob: the blob ids of both downloaded files equal the HF oids at 8736504e (`validation.csv` e4bc90de…, `validation_ref_info.jsonl` e1be7115…), and the ref-info blob id also equals GitHub@e52c87f4's. A git blob id is a SHA-1 over the exact content, so equal ids mean byte-identical files; the files' sha256 are pinned separately in `data/MANIFEST.json`. (2) Alignment: `tests/data/test_ref_info_alignment.py` reads `citySet_with_states.txt` in memory from the zip verified against the D5 pin, and passes for 180/180 rows; with the lines shifted by one, 162/180 rows fail, so the test discriminates.
+- Status: confirmed
+
+### A-025
+- Date: 2026-09-26 · Architecture: v0.7
+- Assumption: `datasets.load_dataset('osunlp/TravelPlanner', 'validation')` at revision 8736504e returns `days`, `visiting_city_number`, `people_number` and `budget` as Python `int`, and every other column (`org`, `dest`, `date`, `local_constraint`, `query`, `level`, `reference_information`) as the verbatim `str` from the CSV.
+- Why needed: D5 §Bridge records file serializes each row to match what `eval.py` would receive from `load_dataset`. The four integers are implied by the evaluator's own use (`days` as a key of `{3, 5, 7}`, arithmetic and comparisons on the others), and `eval.py` converts `local_constraint` only when it is a string. The dtypes were not re-read from the dataset's feature metadata this session (the lookup hit a rate limit).
+- How to check: Read the `features` of the validation config from `https://datasets-server.huggingface.co/info?dataset=osunlp/TravelPlanner` (expect `int64` for the four, `string` for the rest). The data-eval session records the result as a new entry that names A-025 before M2's golden fixtures are generated.
+- Status: open
+
+### A-026
+- Date: 2026-09-26 · Architecture: v0.7
+- Supersedes: A-025, as confirmed. A-025 itself is unchanged.
+- Assumption: `datasets.load_dataset('osunlp/TravelPlanner', 'validation')` at revision `8736504ecfc31b7f8b7e40122873c337e83fff7c` returns `days`, `visiting_city_number`, `people_number` and `budget` as integers (feature dtype `int64`, a Python `int` per row), and `org`, `dest`, `date`, `local_constraint`, `query`, `level` and `reference_information` as strings (dtype `string`).
+- Why needed: D5 §Bridge records file serializes each row exactly as `load_dataset` would return it, so that `eval.py` and the constraint modules see the same types as upstream. Several checks compare or multiply the integers, and would fail silently rather than crash if given strings.
+- How it was checked: The features of the validation config were read from `https://datasets-server.huggingface.co/info?dataset=osunlp/TravelPlanner&config=validation` on 2026-09-26. The response names revision `8736504ecfc31b7f8b7e40122873c337e83fff7c` and 180 examples, and lists exactly those eleven features with those dtypes (all `_type: Value`). The source at `e52c87f4` agrees: `eval.py` converts only `local_constraint` from a string (lines 74–75), and nothing in the evaluator reads `date`, `query` or `reference_information`. FU-15's test that `to_bridge_row` reproduces every CSV cell, and the four integers as `int(cell)`, guards the serialization side.
+- Status: confirmed
