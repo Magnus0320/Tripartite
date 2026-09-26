@@ -1037,10 +1037,17 @@
           "type": "integer"
         },
         "failure_rate": {
-          "maximum": 1.0,
-          "minimum": 0.0,
-          "title": "Failure Rate",
-          "type": "number"
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failure Rate"
         },
         "ok": {
           "minimum": 0,
@@ -1324,6 +1331,15 @@
             "type": "integer"
           },
           "description": "Must contain at least: queries, seeds, pairs_total, pairs_done, delivered, llm_calls, errors (D7).",
+          "required": [
+            "queries",
+            "seeds",
+            "pairs_total",
+            "pairs_done",
+            "delivered",
+            "llm_calls",
+            "errors"
+          ],
           "title": "Counts",
           "type": "object"
         },
@@ -1408,16 +1424,9 @@
       "description": "``runs/<run_id>/manifest.json`` (D7): the run_start payload plus the live status.\n\nThe one mutable file of a run while it is in progress. Every update rewrites it\natomically (temp file plus ``os.replace``). ``status`` and ``stage`` are exactly what\nD8's ``RunDetail`` reports.",
       "properties": {
         "created_at": {
-          "anyOf": [
-            {
-              "format": "date-time",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Created At"
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
         },
         "error": {
           "anyOf": [
@@ -1502,16 +1511,9 @@
           "type": "string"
         },
         "updated_at": {
-          "anyOf": [
-            {
-              "format": "date-time",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Updated At"
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
         }
       },
       "required": [

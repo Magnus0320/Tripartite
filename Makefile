@@ -32,11 +32,13 @@ setup:
 	$(call guarded_step,evalenv/pyproject.toml,uv sync --project evalenv)
 	$(call guarded_step,web/package.json,npm ci --prefix web)
 
-# D4 server (D4 §configs/stack.yaml): the model session's `tripartite model serve-env` validates
+# D4 server (D4 §make serve-model): the model session's `tripartite model serve-env` validates
 # configs/stack.yaml and prints runtime.env as shell exports; the Makefile never parses YAML.
+# runs/ is created first because a fresh clone has none. If serve-env fails, the recipe exits
+# before anything starts, so an unpinned server never comes up. The log path is a fixed constant.
 serve-model:
 	$(call require,configs/stack.yaml)
-	set -a; eval "$$(uv run tripartite model serve-env --format sh)"; set +a; exec ollama serve >> runs/ollama-server.log 2>&1
+	mkdir -p runs; env_sh="$$(uv run tripartite model serve-env --format sh)" || exit 1; set -a; eval "$$env_sh"; set +a; exec ollama serve >> runs/ollama-server.log 2>&1
 
 pull-model:
 	$(TRIPARTITE) model pull

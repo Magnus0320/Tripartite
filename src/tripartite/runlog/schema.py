@@ -88,7 +88,7 @@ RUN_END_COUNT_KEYS: Final = (
     "llm_calls",
     "errors",
 )
-"""Keys that ``run_end.counts`` MUST contain at least (D7). Documented, not validated."""
+"""Keys that ``run_end.counts`` MUST contain at least (D7). Enforced by ``RunEnd`` (v0.5, AQ6)."""
 
 ConstraintResult = tuple[bool | None, str | None]
 """One evaluator check as ``[value, message]``; a value of None means not applicable (A-014)."""
@@ -98,6 +98,13 @@ def _all_official_keys[V](value: dict[OfficialMetric, V]) -> dict[OfficialMetric
     missing = [key for key in OFFICIAL_METRIC_KEYS if key not in value]
     if missing:
         raise ValueError(f"missing official metric keys: {missing}")
+    return value
+
+
+def _all_run_end_count_keys(value: dict[str, int]) -> dict[str, int]:
+    missing = [key for key in RUN_END_COUNT_KEYS if key not in value]
+    if missing:
+        raise ValueError(f"missing run_end count keys: {missing}")
     return value
 
 
@@ -311,15 +318,17 @@ class RunEnd(_Model):
 
     ``counts`` MUST contain at least the keys in ``RUN_END_COUNT_KEYS``: ``queries``,
     ``seeds``, ``pairs_total``, ``pairs_done``, ``delivered``, ``llm_calls`` and ``errors``.
+    A ``run_end`` without any of them fails validation; extra keys are allowed (v0.5, AQ6).
     """
 
     event_type: Literal["run_end"] = "run_end"
     status: Literal["succeeded", "failed", "interrupted"]
-    counts: dict[str, NonNegativeInt] = Field(
+    counts: Annotated[dict[str, NonNegativeInt], AfterValidator(_all_run_end_count_keys)] = Field(
         description=(
             "Must contain at least: queries, seeds, pairs_total, pairs_done, delivered, "
             "llm_calls, errors (D7)."
-        )
+        ),
+        json_schema_extra={"required": list(RUN_END_COUNT_KEYS)},
     )
     metrics_path: str | None
     error: ErrorInfo | None
@@ -437,9 +446,10 @@ class RunManifest(_Model):
     """The run_start payload without the envelope; ``event_type`` is not written."""
     status: RunStatus
     stage: RunStage | None
-    created_at: UtcDatetime | None
-    updated_at: UtcDatetime | None
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
     finished_at: UtcDatetime | None
+    """Null exactly while ``status`` is queued or running (v0.5, AQ5)."""
     progress: Progress
     resumed: bool
     repaired_tail_bytes: NonNegativeInt
@@ -453,6 +463,15 @@ class RunManifest(_Model):
         data: dict[str, Any] = handler(value)
         data.pop("event_type", None)
         return data
+
+    @model_validator(mode="after")
+    def _finished_at_iff_terminal(self) -> Self:
+        active = self.status in ("queued", "running")
+        if active and self.finished_at is not None:
+            raise ValueError(f"finished_at must be null while status is {self.status!r}")
+        if not active and self.finished_at is None:
+            raise ValueError(f"finished_at is required once status is {self.status!r}")
+        return self
 
 
 # --- metrics_seed{n}.json and metrics.json -------------------------------------------------
@@ -508,7 +527,16 @@ class LatencyStats(_Model):
 class ParseSummary(_Model):
     attempted: NonNegativeInt
     ok: NonNegativeInt
-    failure_rate: Rate
+    failure_rate: Rate | None
+    """``1 - ok / attempted``; required, and null exactly when ``attempted == 0`` (v0.5, AQ7)."""
+
+    @model_validator(mode="after")
+    def _failure_rate_null_iff_nothing_attempted(self) -> Self:
+        if self.attempted == 0 and self.failure_rate is not None:
+            raise ValueError("failure_rate must be null when attempted == 0")
+        if self.attempted > 0 and self.failure_rate is None:
+            raise ValueError("failure_rate is required when attempted > 0")
+        return self
 
 
 class Metrics(_Model):
