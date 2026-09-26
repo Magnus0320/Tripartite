@@ -81,9 +81,11 @@ def project_repo(repo: Path) -> Path:
 # --- path rules, enforced by the script itself (no .gitignore) ------------------------------
 
 PATH_CASES = [
-    # §8.1 dataset files
+    # §8.1 dataset files: only paths under the root data/ directory (v0.6, FQ1)
     ("data/raw/validation.csv", "§8.1"),
+    ("data/x.csv", "§8.1"),
     ("data/MANIFEST.json", None),
+    ("data", None),
     # §8.2 test-split artefacts: the file name only, data extensions only, in any case
     ("test.csv", "§8.2"),
     ("tests/fixtures/test_ref_info.jsonl", "§8.2"),
@@ -175,6 +177,15 @@ def test_runs_and_mlruns_are_ignored_only_at_the_root(project_repo: Path) -> Non
     assert _check(project_repo) == {}
     visible = _git(project_repo, "ls-files", "--others", "--exclude-standard").splitlines()
     assert sorted(visible) == [".gitignore", *nested]
+
+
+def test_macos_archive_clutter_is_ignored(project_repo: Path) -> None:
+    for path in [".DS_Store", "__MACOSX/database/._clean_Flights_2022.csv", "docs/._notes.md"]:
+        _write(project_repo, path)
+
+    assert _check(project_repo) == {}
+    visible = _git(project_repo, "ls-files", "--others", "--exclude-standard").splitlines()
+    assert visible == [".gitignore"]
 
 
 # --- content rules ----------------------------------------------------------------------------

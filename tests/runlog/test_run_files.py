@@ -1,7 +1,8 @@
-"""manifest.json, metrics_seed{n}.json, metrics.json and the v0.4/v0.5 field rules (D7)."""
+"""manifest.json, metrics_seed{n}.json, metrics.json and the v0.4 to v0.6 field rules (D7)."""
 
 import json
 import uuid
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -13,6 +14,7 @@ from tripartite.runlog.schema import (
     EVENT_ADAPTER,
     OFFICIAL_METRIC_KEYS,
     RUN_END_COUNT_KEYS,
+    SCHEMA_JSON_PATH,
     EnvInfo,
     LlmCall,
     Metrics,
@@ -188,6 +190,54 @@ def test_parse_failure_rate_is_required_although_nullable() -> None:
         ParseSummary.model_validate({"attempted": 0, "ok": 0})
 
 
+@pytest.mark.parametrize(
+    ("attempted", "ok", "failure_rate"),
+    [(27, 28, 0.0), (0, 1, None)],
+    ids=["more-ok-than-attempted", "ok-with-nothing-attempted"],
+)
+def test_parse_ok_may_not_exceed_attempted(
+    attempted: int, ok: int, failure_rate: float | None
+) -> None:
+    parse = {"attempted": attempted, "ok": ok, "failure_rate": failure_rate}
+    with pytest.raises(ValidationError, match="ok must not exceed attempted"):
+        ParseSummary.model_validate(parse)
+    with pytest.raises(ValidationError, match="ok must not exceed attempted"):
+        Metrics.model_validate({**samples.metrics().model_dump(), "parse": parse})
+
+
+@pytest.mark.parametrize(
+    "failure_rate",
+    [1 - 25 / 27 + 2e-12, 1 - 25 / 27 - 2e-12, round(2 / 27, 4), 25 / 27],
+    ids=["above-by-2e-12", "below-by-2e-12", "rounded", "ok-rate-instead"],
+)
+def test_parse_failure_rate_must_match_the_counts(failure_rate: float) -> None:
+    parse = {"attempted": 27, "ok": 25, "failure_rate": failure_rate}
+    with pytest.raises(ValidationError, match="failure_rate must equal 1 - ok / attempted"):
+        ParseSummary.model_validate(parse)
+    with pytest.raises(ValidationError, match="failure_rate must equal 1 - ok / attempted"):
+        Metrics.model_validate({**samples.metrics().model_dump(), "parse": parse})
+
+
+@pytest.mark.parametrize(
+    ("attempted", "ok", "failure_rate"),
+    [
+        (27, 25, 1 - 25 / 27),
+        (27, 25, 2 / 27),
+        (27, 25, 1 - 25 / 27 + 1e-13),
+        (27, 27, 0.0),
+        (1, 0, 1.0),
+    ],
+    ids=["exact", "equal-by-another-expression", "within-1e-12", "all-ok", "none-ok"],
+)
+def test_parse_failure_rate_within_tolerance_is_accepted(
+    attempted: int, ok: int, failure_rate: float
+) -> None:
+    parse = ParseSummary(attempted=attempted, ok=ok, failure_rate=failure_rate)
+    assert ParseSummary.model_validate_json(parse.model_dump_json()) == parse
+    metrics = samples.metrics(parse=parse)
+    assert Metrics.model_validate_json(metrics.model_dump_json()) == metrics
+
+
 # --- llm_call: null query_id / seed only for the warm-up ------------------------------------
 
 
@@ -252,6 +302,39 @@ def test_run_end_counts_accept_extra_keys() -> None:
     event = EVENT_ADAPTER.validate_python(_envelope() | fields)
     assert isinstance(event, RunEnd)
     assert event.counts["retries"] == 2
+
+
+def _committed_schema() -> dict[str, Any]:
+    schema: dict[str, Any] = json.loads(SCHEMA_JSON_PATH.read_text(encoding="utf-8"))
+    return schema
+
+
+def _keys(node: object) -> Iterator[str]:
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield key
+            yield from _keys(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _keys(item)
+
+
+def test_schema_json_states_the_cross_field_rules() -> None:
+    definitions = _committed_schema()["$defs"]
+    llm_call = definitions["LlmCallEvent"]["properties"]
+    for field in ("query_id", "seed"):
+        assert 'Null only when role == "warmup"' in llm_call[field]["description"]
+    finished_at = definitions["RunManifest"]["properties"]["finished_at"]["description"]
+    assert "Null iff status is queued or running" in finished_at
+    parse = definitions["ParseSummary"]["properties"]
+    assert "ok <= attempted" in parse["ok"]["description"]
+    failure_rate = parse["failure_rate"]["description"]
+    assert "null iff attempted == 0" in failure_rate
+    assert "must equal 1 - ok / attempted within an absolute 1e-12" in failure_rate
+
+
+def test_schema_json_has_no_conditionals() -> None:
+    assert not {"if", "then", "else"} & set(_keys(_committed_schema()))
 
 
 def test_schema_json_describes_the_run_directory_files() -> None:
