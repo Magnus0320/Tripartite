@@ -1,0 +1,23 @@
+{
+  "database_zip": {
+    "bytes": 59039278,
+    "name": "sandbox_database.zip",
+    "sha256": "de345b0c243cd8c85355a264c5124db5db275327d2a38fa8685c6e69fabb650b"
+  },
+  "dataset": {
+    "files": {
+      "validation.csv": {
+        "bytes": 4833771,
+        "sha256": "0e54b26b13c0b6d50e8683765e930bffca949488c44634e530da899914d40e80"
+      },
+      "validation_ref_info.jsonl": {
+        "bytes": 5052714,
+        "sha256": "0555348b457226a7cff866a7ec1962b60105fd90bb9e5c030b9e9ec3f2aff1d0"
+      }
+    },
+    "repo_id": "osunlp/TravelPlanner",
+    "repo_type": "dataset",
+    "revision": "8736504ecfc31b7f8b7e40122873c337e83fff7c"
+  },
+  "schema_version": 1
+}
