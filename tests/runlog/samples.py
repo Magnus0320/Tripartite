@@ -376,7 +376,7 @@ def metrics(**overrides: Any) -> Metrics:
             for key in OFFICIAL_METRIC_KEYS
         },
         "non_delivery": {"no_day_blocks": 2, "llm_error": 1},
-        "parse": ParseSummary(attempted=27, ok=25, failure_rate=2 / 27),
+        "parse": ParseSummary(attempted=27, ok=25, failure_rate=1 - 25 / 27),
         "tokens": TokenStats(input=stats, output=stats, thinking=empty),
         "latency_ms": LatencyStats(wall=stats, load=empty, prefill=stats, generation=stats),
     }

@@ -15,7 +15,9 @@ The other files of a run directory have models here too: ``RunManifest`` (``mani
 
 The JSON Schema is committed next to this file as ``schema.json``. Its root validates one
 ``events.jsonl`` line; ``RunManifest``, ``MetricsSeed`` and ``Metrics`` are under ``$defs``.
-Regenerate it after any change here::
+These models are the normative validator; ``schema.json`` is structural only. The cross-field
+rules that the model validators enforce appear there as field descriptions, never as
+``if``/``then`` (D7 §Where the rules live, v0.6). Regenerate it after any change here::
 
     uv run python -m tripartite.runlog.schema > src/tripartite/runlog/schema.json
 """
@@ -49,6 +51,8 @@ SCHEMA_JSON_PATH: Final = Path(__file__).with_name("schema.json")
 # [0-9] rather than \d: the validator's regex engine treats \d as any Unicode digit.
 RUN_ID_PATTERN: Final = r"^[0-9]{8}T[0-9]{6}Z-(batch|single)-[0-9a-f]{8}-[0-9a-f]{4}$"
 SHA256_PATTERN: Final = r"^[0-9a-f]{64}$"
+FAILURE_RATE_TOLERANCE: Final = 1e-12
+"""How far ``parse.failure_rate`` may be from ``1 - ok / attempted`` (absolute; v0.6, FQ3)."""
 
 
 def _require_utc(value: datetime) -> datetime:
@@ -110,6 +114,13 @@ def _all_run_end_count_keys(value: dict[str, int]) -> dict[str, int]:
 
 class _Model(BaseModel):
     model_config = ConfigDict(extra="allow", frozen=True, protected_namespaces=())
+
+
+# The cross-field rules, stated in schema.json as field descriptions (D7 §Where the rules live).
+_WARMUP_NULLS: Final = (
+    'Null only when role == "warmup"; every other call carries query_id and seed '
+    "(D7; enforced by the model)."
+)
 
 
 # --- nested values ------------------------------------------------------------------------
@@ -239,10 +250,8 @@ class RunStart(_Model):
 class LlmCall(_Model):
     event_type: Literal["llm_call"] = "llm_call"
     call_id: str
-    query_id: str | None
-    """Null only when ``role == "warmup"``."""
-    seed: int | None
-    """Null only when ``role == "warmup"``."""
+    query_id: str | None = Field(description=_WARMUP_NULLS)
+    seed: int | None = Field(description=_WARMUP_NULLS)
     agent_id: str
     role: str
     round: int | None
@@ -448,8 +457,12 @@ class RunManifest(_Model):
     stage: RunStage | None
     created_at: UtcDatetime
     updated_at: UtcDatetime
-    finished_at: UtcDatetime | None
-    """Null exactly while ``status`` is queued or running (v0.5, AQ5)."""
+    finished_at: UtcDatetime | None = Field(
+        description=(
+            "Null iff status is queued or running; set iff status is terminal (succeeded, "
+            "failed, interrupted) (D7, v0.5 AQ5; enforced by the model)."
+        )
+    )
     progress: Progress
     resumed: bool
     repaired_tail_bytes: NonNegativeInt
@@ -526,16 +539,31 @@ class LatencyStats(_Model):
 
 class ParseSummary(_Model):
     attempted: NonNegativeInt
-    ok: NonNegativeInt
-    failure_rate: Rate | None
-    """``1 - ok / attempted``; required, and null exactly when ``attempted == 0`` (v0.5, AQ7)."""
+    ok: NonNegativeInt = Field(description="ok <= attempted (D7, v0.6 FQ3; enforced by the model).")
+    failure_rate: Rate | None = Field(
+        description=(
+            "1 - ok / attempted, computed with that expression and never rounded. Required, "
+            "and null iff attempted == 0. When attempted > 0 it must equal 1 - ok / attempted "
+            f"within an absolute {FAILURE_RATE_TOLERANCE} (D7, v0.5 AQ7 and v0.6 FQ3; "
+            "enforced by the model)."
+        )
+    )
 
     @model_validator(mode="after")
-    def _failure_rate_null_iff_nothing_attempted(self) -> Self:
+    def _counts_and_failure_rate_agree(self) -> Self:
+        if self.ok > self.attempted:
+            raise ValueError(f"ok must not exceed attempted ({self.ok} > {self.attempted})")
         if self.attempted == 0 and self.failure_rate is not None:
             raise ValueError("failure_rate must be null when attempted == 0")
         if self.attempted > 0 and self.failure_rate is None:
             raise ValueError("failure_rate is required when attempted > 0")
+        if self.failure_rate is not None:
+            expected = 1 - self.ok / self.attempted
+            if abs(self.failure_rate - expected) > FAILURE_RATE_TOLERANCE:
+                raise ValueError(
+                    f"failure_rate must equal 1 - ok / attempted within {FAILURE_RATE_TOLERANCE}"
+                    f" ({expected!r}), got {self.failure_rate!r}"
+                )
         return self
 
 

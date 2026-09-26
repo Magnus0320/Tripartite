@@ -491,6 +491,7 @@
               "type": "null"
             }
           ],
+          "description": "Null only when role == \"warmup\"; every other call carries query_id and seed (D7; enforced by the model).",
           "title": "Query Id"
         },
         "request": {
@@ -530,6 +531,7 @@
               "type": "null"
             }
           ],
+          "description": "Null only when role == \"warmup\"; every other call carries query_id and seed (D7; enforced by the model).",
           "title": "Seed"
         },
         "seq": {
@@ -1047,9 +1049,11 @@
               "type": "null"
             }
           ],
+          "description": "1 - ok / attempted, computed with that expression and never rounded. Required, and null iff attempted == 0. When attempted > 0 it must equal 1 - ok / attempted within an absolute 1e-12 (D7, v0.5 AQ7 and v0.6 FQ3; enforced by the model).",
           "title": "Failure Rate"
         },
         "ok": {
+          "description": "ok <= attempted (D7, v0.6 FQ3; enforced by the model).",
           "minimum": 0,
           "title": "Ok",
           "type": "integer"
@@ -1448,6 +1452,7 @@
               "type": "null"
             }
           ],
+          "description": "Null iff status is queued or running; set iff status is terminal (succeeded, failed, interrupted) (D7, v0.5 AQ5; enforced by the model).",
           "title": "Finished At"
         },
         "metrics_path": {

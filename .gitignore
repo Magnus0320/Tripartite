@@ -30,5 +30,7 @@ build/
 
 # --- Local machine and editor state ---
 .DS_Store
+__MACOSX/
+._*
 .claude/settings.local.json
 .claude/worktrees/

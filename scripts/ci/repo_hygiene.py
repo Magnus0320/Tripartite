@@ -3,7 +3,8 @@
 The repository is public. This fails if any file that is tracked, or that could be committed
 (untracked and not ignored), is something §8 says is never committed:
 
-1. dataset files: anything under data/ except data/MANIFEST.json;
+1. dataset files: anything under the repository-root data/ directory except
+   data/MANIFEST.json (a root-level file named data is not under it);
 2. test-split artefacts, matched on the file name only: test.csv, test_ref_info.jsonl, or a
    name matching *test*ref_info* with a data extension (.csv .jsonl .json .parquet .zip .gz
    .txt), so source and test files such as tests/data/test_ref_info_alignment.py are fine;
@@ -46,7 +47,7 @@ def path_violations(path: str) -> list[str]:
     parts = PurePosixPath(path).parts
     name = parts[-1]
     reasons = []
-    if parts[0] == "data" and path != "data/MANIFEST.json":
+    if len(parts) > 1 and parts[0] == "data" and path != "data/MANIFEST.json":
         reasons.append("dataset file under data/ (§8.1)")
     lower = name.lower()
     if lower in {"test.csv", "test_ref_info.jsonl"} or (
