@@ -1,0 +1,111 @@
+{
+  "calibrated_at": "2026-09-28T07:44:53Z",
+  "ollama_version": "0.33.2",
+  "model_tag": "qwen3:8b-q4_K_M",
+  "model_digest": "sha256:500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41",
+  "tokenizer_repo": "Qwen/Qwen3-8B",
+  "tokenizer_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+  "num_ctx": 32768,
+  "mode": "total",
+  "probes": [
+    {
+      "kind": "cold",
+      "query_id": "val-001",
+      "prompt_tokens": 6448,
+      "lcp": null,
+      "prompt_eval_count": 6448,
+      "prompt_eval_cached_count": null,
+      "load_ms": 2574.396584
+    },
+    {
+      "kind": "cold",
+      "query_id": "val-002",
+      "prompt_tokens": 5310,
+      "lcp": null,
+      "prompt_eval_count": 5310,
+      "prompt_eval_cached_count": null,
+      "load_ms": 2040.145125
+    },
+    {
+      "kind": "cold",
+      "query_id": "val-003",
+      "prompt_tokens": 6217,
+      "lcp": null,
+      "prompt_eval_count": 6217,
+      "prompt_eval_cached_count": null,
+      "load_ms": 2040.237958
+    },
+    {
+      "kind": "cold",
+      "query_id": "val-004",
+      "prompt_tokens": 5858,
+      "lcp": null,
+      "prompt_eval_count": 5858,
+      "prompt_eval_cached_count": null,
+      "load_ms": 2047.827125
+    },
+    {
+      "kind": "cold",
+      "query_id": "val-005",
+      "prompt_tokens": 7741,
+      "lcp": null,
+      "prompt_eval_count": 7741,
+      "prompt_eval_cached_count": null,
+      "load_ms": 2590.626917
+    },
+    {
+      "kind": "cold",
+      "query_id": "val-006",
+      "prompt_tokens": 5116,
+      "lcp": null,
+      "prompt_eval_count": 5116,
+      "prompt_eval_cached_count": null,
+      "load_ms": 2593.877709
+    },
+    {
+      "kind": "cold",
+      "query_id": "val-007",
+      "prompt_tokens": 7714,
+      "lcp": null,
+      "prompt_eval_count": 7714,
+      "prompt_eval_cached_count": null,
+      "load_ms": 2592.019791
+    },
+    {
+      "kind": "cold",
+      "query_id": "val-008",
+      "prompt_tokens": 6131,
+      "lcp": null,
+      "prompt_eval_count": 6131,
+      "prompt_eval_cached_count": null,
+      "load_ms": 2600.217208
+    },
+    {
+      "kind": "cold",
+      "query_id": "val-009",
+      "prompt_tokens": 5460,
+      "lcp": null,
+      "prompt_eval_count": 5460,
+      "prompt_eval_cached_count": null,
+      "load_ms": 2562.713625
+    },
+    {
+      "kind": "warm",
+      "query_id": "val-009",
+      "prompt_tokens": 5460,
+      "lcp": 5460,
+      "prompt_eval_count": 5460,
+      "prompt_eval_cached_count": null,
+      "load_ms": 3.944334
+    },
+    {
+      "kind": "warm",
+      "query_id": "val-001",
+      "prompt_tokens": 6448,
+      "lcp": 511,
+      "prompt_eval_count": 6448,
+      "prompt_eval_cached_count": null,
+      "load_ms": 0.785292
+    }
+  ]
+}

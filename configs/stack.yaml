@@ -1,0 +1,28 @@
+# Runtime pins (ARCHITECTURE.md D4 §configs/stack.yaml, §6). Owner: model session.
+# `make serve-model` exports runtime.env through `tripartite model serve-env`, and
+# `tripartite model doctor` fails if the running server differs from anything here.
+# If this file and the D4 table ever disagree, the table wins and this file is wrong.
+schema_version: 1
+runtime:
+  name: ollama
+  version: "0.33.2"                 # exact; doctor compares `ollama --version` and /api/version
+  url: "http://127.0.0.1:11435"     # the dedicated server this project uses
+  env:                              # exported verbatim before `ollama serve`
+    OLLAMA_HOST: "127.0.0.1:11435"
+    OLLAMA_CONTEXT_LENGTH: "32768"
+    OLLAMA_NUM_PARALLEL: "1"
+    OLLAMA_MAX_LOADED_MODELS: "1"
+    OLLAMA_KEEP_ALIVE: "-1"
+    OLLAMA_FLASH_ATTENTION: "1"
+    OLLAMA_KV_CACHE_TYPE: "f16"
+  desktop_app_url: "http://127.0.0.1:11434"   # must have no model loaded
+model:
+  tag: "qwen3:8b-q4_K_M"
+  # sha256 of the registry manifest for qwen3:8b-q4_K_M, as /api/tags reports it (F10 prefix).
+  digest: "sha256:500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41"
+  quant: q4_K_M
+  num_ctx: 32768
+tokenizer:
+  repo: "Qwen/Qwen3-8B"
+  revision: "b968826d9c46dd6066d109eabc6255188de91218"
+  local_dir: data/tokenizer

@@ -1,0 +1,29 @@
+# Phase 1 baseline run (ARCHITECTURE.md D1, D4, D6, §6). Owner: model session.
+# All 180 validation queries x seeds 0, 1, 2 = 540 calls, seed-major in query_id order.
+# configs/single.yaml is identical except run.name, kind, queries and seeds (D8).
+schema_version: 1
+run:
+  name: baseline                    # excluded from config_hash (D7)
+kind: batch
+mode: sole-planning
+context_mode: full
+split: validation
+queries: all
+seeds: [0, 1, 2]
+order: seed-major
+stack: configs/stack.yaml
+prompt:
+  version: sp-direct-v1
+  path: prompts/sole_planning_direct_v1.txt
+  sha256: "62c9858ea22f5b9fbd3cd3ee8d2bd149a96126333e64bddc084b2f5cbdfeac07"
+generation:                         # every option is sent on every request (D4)
+  num_predict: 4096
+  temperature: 0.7
+  top_p: 0.8
+  top_k: 20
+  min_p: 0.0
+  repeat_penalty: 1.0
+  think: false
+  stop: ["<|im_end|>", "<|endoftext|>"]
+  timeout_s: 600                    # D6: a call that takes longer is a transport error
+  transport_retries: 2              # D6: same seed; model outputs are never retried
