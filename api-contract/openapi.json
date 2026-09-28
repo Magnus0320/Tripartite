@@ -1,0 +1,238 @@
+{
+  "components": {
+    "schemas": {
+      "ErrorDetail": {
+        "additionalProperties": false,
+        "description": "An error response, for example for an unknown query_id.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "Health": {
+        "additionalProperties": false,
+        "description": "The response of GET /api/health.",
+        "properties": {
+          "evaluator_ready": {
+            "title": "Evaluator Ready",
+            "type": "boolean"
+          },
+          "model_digest_ok": {
+            "title": "Model Digest Ok",
+            "type": "boolean"
+          },
+          "model_reachable": {
+            "title": "Model Reachable",
+            "type": "boolean"
+          },
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "model_reachable",
+          "model_digest_ok",
+          "evaluator_ready"
+        ],
+        "title": "Health",
+        "type": "object"
+      },
+      "QueryItem": {
+        "additionalProperties": false,
+        "description": "One validation query: the PlannerInput fields query_id and query only.",
+        "properties": {
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "query_id": {
+            "title": "Query Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query_id",
+          "query"
+        ],
+        "title": "QueryItem",
+        "type": "object"
+      },
+      "QueryList": {
+        "additionalProperties": false,
+        "description": "The response of GET /api/queries: all 180 validation queries, in query_id order.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QueryItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "QueryList",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Tripartite API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/health": {
+      "get": {
+        "description": "Liveness, plus whether the model and the evaluator are ready.",
+        "operationId": "get_health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Health"
+      }
+    },
+    "/api/queries": {
+      "get": {
+        "description": "All 180 validation queries, in query_id order.",
+        "operationId": "list_queries_api_queries_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Queries"
+      }
+    },
+    "/api/queries/{query_id}": {
+      "get": {
+        "description": "One validation query; 404 if the query_id is unknown.",
+        "operationId": "get_query_api_queries__query_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "query_id",
+            "required": true,
+            "schema": {
+              "title": "Query Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Unknown query_id"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Query"
+      }
+    }
+  }
+}
