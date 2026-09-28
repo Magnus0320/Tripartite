@@ -30,16 +30,35 @@ def test_fetch_then_verify_succeeds(data_dir: Path) -> None:
     assert fetched.exit_code == 0, fetched.output
     assert f"dataset files recorded in {data_dir / 'MANIFEST.json'}" in fetched.output
     assert "sandbox_database.zip: OK" in fetched.output
+    assert fetched.output.splitlines()[-1].endswith(
+        f"database: unpacked 8 files; sha256 recorded in {data_dir / 'MANIFEST.json'}"
+    )
 
     again = runner.invoke(app, ["fetch"])
     assert again.exit_code == 0, again.output
     assert "dataset files match" in again.output
+    assert again.output.splitlines()[-1].endswith(
+        f"database: 8 files match {data_dir / 'MANIFEST.json'}; nothing to unpack"
+    )
 
     verified = runner.invoke(app, ["verify"])
     assert verified.exit_code == 0, verified.output
     lines = verified.output.splitlines()
     assert lines[-1] == "data verify: OK"
-    assert sum(": OK (" in line for line in lines) == 4
+    assert sum(": OK (" in line for line in lines) == 12
+
+
+@pytest.mark.usefixtures("hub", "synthetic_zip_pin")
+def test_fetch_fails_on_a_database_zip_it_refuses(data_dir: Path) -> None:
+    synthetic.write_database_zip(
+        data_dir / "downloads" / "sandbox_database.zip", extra={"database/extra.csv": b"x"}
+    )
+
+    result = runner.invoke(app, ["fetch"])
+
+    assert result.exit_code == 1
+    assert "sandbox_database.zip: expected" in result.output  # no longer the pinned zip
+    assert result.output.splitlines()[-1] == "data fetch: FAILED"
 
 
 @pytest.mark.usefixtures("hub")

@@ -1,0 +1,180 @@
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-001"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-002"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-003"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-004"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-005"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-006"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-007"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-008"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-009"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-010"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-011"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-012"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-013"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-014"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-015"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-016"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-017"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-018"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-019"}
+{"constrained": [], "days": 3, "level": "easy", "query_id": "val-020"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-021"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-022"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-023"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-024"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-025"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-026"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-027"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-028"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-029"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-030"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-031"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-032"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-033"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-034"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-035"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-036"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-037"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-038"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-039"}
+{"constrained": [], "days": 5, "level": "easy", "query_id": "val-040"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-041"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-042"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-043"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-044"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-045"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-046"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-047"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-048"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-049"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-050"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-051"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-052"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-053"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-054"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-055"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-056"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-057"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-058"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-059"}
+{"constrained": [], "days": 7, "level": "easy", "query_id": "val-060"}
+{"constrained": ["house rule"], "days": 3, "level": "medium", "query_id": "val-061"}
+{"constrained": ["room type"], "days": 3, "level": "medium", "query_id": "val-062"}
+{"constrained": ["cuisine"], "days": 3, "level": "medium", "query_id": "val-063"}
+{"constrained": ["room type"], "days": 3, "level": "medium", "query_id": "val-064"}
+{"constrained": ["cuisine"], "days": 3, "level": "medium", "query_id": "val-065"}
+{"constrained": ["room type"], "days": 3, "level": "medium", "query_id": "val-066"}
+{"constrained": ["house rule"], "days": 3, "level": "medium", "query_id": "val-067"}
+{"constrained": ["cuisine"], "days": 3, "level": "medium", "query_id": "val-068"}
+{"constrained": ["room type"], "days": 3, "level": "medium", "query_id": "val-069"}
+{"constrained": ["cuisine"], "days": 3, "level": "medium", "query_id": "val-070"}
+{"constrained": ["cuisine"], "days": 3, "level": "medium", "query_id": "val-071"}
+{"constrained": ["house rule"], "days": 3, "level": "medium", "query_id": "val-072"}
+{"constrained": ["room type"], "days": 3, "level": "medium", "query_id": "val-073"}
+{"constrained": ["cuisine"], "days": 3, "level": "medium", "query_id": "val-074"}
+{"constrained": ["house rule"], "days": 3, "level": "medium", "query_id": "val-075"}
+{"constrained": ["house rule"], "days": 3, "level": "medium", "query_id": "val-076"}
+{"constrained": ["room type"], "days": 3, "level": "medium", "query_id": "val-077"}
+{"constrained": ["room type"], "days": 3, "level": "medium", "query_id": "val-078"}
+{"constrained": ["room type"], "days": 3, "level": "medium", "query_id": "val-079"}
+{"constrained": ["room type"], "days": 3, "level": "medium", "query_id": "val-080"}
+{"constrained": ["cuisine"], "days": 5, "level": "medium", "query_id": "val-081"}
+{"constrained": ["cuisine"], "days": 5, "level": "medium", "query_id": "val-082"}
+{"constrained": ["cuisine"], "days": 5, "level": "medium", "query_id": "val-083"}
+{"constrained": ["room type"], "days": 5, "level": "medium", "query_id": "val-084"}
+{"constrained": ["house rule"], "days": 5, "level": "medium", "query_id": "val-085"}
+{"constrained": ["room type"], "days": 5, "level": "medium", "query_id": "val-086"}
+{"constrained": ["house rule"], "days": 5, "level": "medium", "query_id": "val-087"}
+{"constrained": ["cuisine"], "days": 5, "level": "medium", "query_id": "val-088"}
+{"constrained": ["house rule"], "days": 5, "level": "medium", "query_id": "val-089"}
+{"constrained": ["room type"], "days": 5, "level": "medium", "query_id": "val-090"}
+{"constrained": ["room type"], "days": 5, "level": "medium", "query_id": "val-091"}
+{"constrained": ["room type"], "days": 5, "level": "medium", "query_id": "val-092"}
+{"constrained": ["cuisine"], "days": 5, "level": "medium", "query_id": "val-093"}
+{"constrained": ["cuisine"], "days": 5, "level": "medium", "query_id": "val-094"}
+{"constrained": ["cuisine"], "days": 5, "level": "medium", "query_id": "val-095"}
+{"constrained": ["cuisine"], "days": 5, "level": "medium", "query_id": "val-096"}
+{"constrained": ["house rule"], "days": 5, "level": "medium", "query_id": "val-097"}
+{"constrained": ["house rule"], "days": 5, "level": "medium", "query_id": "val-098"}
+{"constrained": ["house rule"], "days": 5, "level": "medium", "query_id": "val-099"}
+{"constrained": ["room type"], "days": 5, "level": "medium", "query_id": "val-100"}
+{"constrained": ["cuisine"], "days": 7, "level": "medium", "query_id": "val-101"}
+{"constrained": ["cuisine"], "days": 7, "level": "medium", "query_id": "val-102"}
+{"constrained": ["house rule"], "days": 7, "level": "medium", "query_id": "val-103"}
+{"constrained": ["room type"], "days": 7, "level": "medium", "query_id": "val-104"}
+{"constrained": ["cuisine"], "days": 7, "level": "medium", "query_id": "val-105"}
+{"constrained": ["cuisine"], "days": 7, "level": "medium", "query_id": "val-106"}
+{"constrained": ["house rule"], "days": 7, "level": "medium", "query_id": "val-107"}
+{"constrained": ["house rule"], "days": 7, "level": "medium", "query_id": "val-108"}
+{"constrained": ["cuisine"], "days": 7, "level": "medium", "query_id": "val-109"}
+{"constrained": ["cuisine"], "days": 7, "level": "medium", "query_id": "val-110"}
+{"constrained": ["house rule"], "days": 7, "level": "medium", "query_id": "val-111"}
+{"constrained": ["house rule"], "days": 7, "level": "medium", "query_id": "val-112"}
+{"constrained": ["house rule"], "days": 7, "level": "medium", "query_id": "val-113"}
+{"constrained": ["room type"], "days": 7, "level": "medium", "query_id": "val-114"}
+{"constrained": ["house rule"], "days": 7, "level": "medium", "query_id": "val-115"}
+{"constrained": ["house rule"], "days": 7, "level": "medium", "query_id": "val-116"}
+{"constrained": ["room type"], "days": 7, "level": "medium", "query_id": "val-117"}
+{"constrained": ["cuisine"], "days": 7, "level": "medium", "query_id": "val-118"}
+{"constrained": ["house rule"], "days": 7, "level": "medium", "query_id": "val-119"}
+{"constrained": ["cuisine"], "days": 7, "level": "medium", "query_id": "val-120"}
+{"constrained": ["cuisine", "house rule", "room type"], "days": 3, "level": "hard", "query_id": "val-121"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 3, "level": "hard", "query_id": "val-122"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 3, "level": "hard", "query_id": "val-123"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 3, "level": "hard", "query_id": "val-124"}
+{"constrained": ["cuisine", "house rule", "room type"], "days": 3, "level": "hard", "query_id": "val-125"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 3, "level": "hard", "query_id": "val-126"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 3, "level": "hard", "query_id": "val-127"}
+{"constrained": ["cuisine", "house rule", "transportation"], "days": 3, "level": "hard", "query_id": "val-128"}
+{"constrained": ["cuisine", "house rule", "transportation"], "days": 3, "level": "hard", "query_id": "val-129"}
+{"constrained": ["cuisine", "house rule", "transportation"], "days": 3, "level": "hard", "query_id": "val-130"}
+{"constrained": ["cuisine", "house rule", "transportation"], "days": 3, "level": "hard", "query_id": "val-131"}
+{"constrained": ["cuisine", "house rule", "transportation"], "days": 3, "level": "hard", "query_id": "val-132"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 3, "level": "hard", "query_id": "val-133"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 3, "level": "hard", "query_id": "val-134"}
+{"constrained": ["cuisine", "house rule", "transportation"], "days": 3, "level": "hard", "query_id": "val-135"}
+{"constrained": ["cuisine", "room type", "transportation"], "days": 3, "level": "hard", "query_id": "val-136"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 3, "level": "hard", "query_id": "val-137"}
+{"constrained": ["cuisine", "house rule", "room type"], "days": 3, "level": "hard", "query_id": "val-138"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 3, "level": "hard", "query_id": "val-139"}
+{"constrained": ["cuisine", "house rule", "transportation"], "days": 3, "level": "hard", "query_id": "val-140"}
+{"constrained": ["cuisine", "house rule", "room type"], "days": 5, "level": "hard", "query_id": "val-141"}
+{"constrained": ["cuisine", "house rule", "room type"], "days": 5, "level": "hard", "query_id": "val-142"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 5, "level": "hard", "query_id": "val-143"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 5, "level": "hard", "query_id": "val-144"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 5, "level": "hard", "query_id": "val-145"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 5, "level": "hard", "query_id": "val-146"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 5, "level": "hard", "query_id": "val-147"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 5, "level": "hard", "query_id": "val-148"}
+{"constrained": ["cuisine", "house rule", "room type"], "days": 5, "level": "hard", "query_id": "val-149"}
+{"constrained": ["cuisine", "house rule", "transportation"], "days": 5, "level": "hard", "query_id": "val-150"}
+{"constrained": ["cuisine", "room type", "transportation"], "days": 5, "level": "hard", "query_id": "val-151"}
+{"constrained": ["cuisine", "house rule", "transportation"], "days": 5, "level": "hard", "query_id": "val-152"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 5, "level": "hard", "query_id": "val-153"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 5, "level": "hard", "query_id": "val-154"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 5, "level": "hard", "query_id": "val-155"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 5, "level": "hard", "query_id": "val-156"}
+{"constrained": ["cuisine", "house rule", "transportation"], "days": 5, "level": "hard", "query_id": "val-157"}
+{"constrained": ["cuisine", "house rule", "transportation"], "days": 5, "level": "hard", "query_id": "val-158"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 5, "level": "hard", "query_id": "val-159"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 5, "level": "hard", "query_id": "val-160"}
+{"constrained": ["cuisine", "house rule", "transportation"], "days": 7, "level": "hard", "query_id": "val-161"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 7, "level": "hard", "query_id": "val-162"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 7, "level": "hard", "query_id": "val-163"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 7, "level": "hard", "query_id": "val-164"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 7, "level": "hard", "query_id": "val-165"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 7, "level": "hard", "query_id": "val-166"}
+{"constrained": ["cuisine", "room type", "transportation"], "days": 7, "level": "hard", "query_id": "val-167"}
+{"constrained": ["cuisine", "house rule", "room type"], "days": 7, "level": "hard", "query_id": "val-168"}
+{"constrained": ["cuisine", "house rule", "transportation"], "days": 7, "level": "hard", "query_id": "val-169"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 7, "level": "hard", "query_id": "val-170"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 7, "level": "hard", "query_id": "val-171"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 7, "level": "hard", "query_id": "val-172"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 7, "level": "hard", "query_id": "val-173"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 7, "level": "hard", "query_id": "val-174"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 7, "level": "hard", "query_id": "val-175"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 7, "level": "hard", "query_id": "val-176"}
+{"constrained": ["cuisine", "house rule", "transportation"], "days": 7, "level": "hard", "query_id": "val-177"}
+{"constrained": ["cuisine", "house rule", "room type"], "days": 7, "level": "hard", "query_id": "val-178"}
+{"constrained": ["house rule", "room type", "transportation"], "days": 7, "level": "hard", "query_id": "val-179"}
+{"constrained": ["cuisine", "house rule", "room type"], "days": 7, "level": "hard", "query_id": "val-180"}

@@ -1,8 +1,11 @@
 """``tripartite data``: fetch and verify the pinned data (ARCHITECTURE.md D3, D5, §6).
 
 ``make data`` runs ``fetch`` then ``verify``; ``make doctor`` runs ``verify``. Both exit 1 on
-any mismatch with the pins, printing the expected and actual values.
+any mismatch with the pins, printing the expected and actual values. ``fetch`` also unpacks the
+verified database zip into ``vendor/travelplanner/database/`` (D5 §Database — unpacking).
 """
+
+import zipfile
 
 import typer
 
@@ -26,7 +29,8 @@ def _fail(command: str, problems: list[str]) -> typer.Exit:
 @app.command()
 def fetch() -> None:
     """Download validation.csv and validation_ref_info.jsonl at the pinned revision, record or
-    check them in data/MANIFEST.json, and check the database zip against the D5 pin."""
+    check them in data/MANIFEST.json, check the database zip against the D5 pin, and unpack it
+    into vendor/travelplanner/database/."""
     try:
         result = download.fetch()
     except manifest.DataError as exc:
@@ -43,6 +47,19 @@ def fetch() -> None:
     if problems := manifest.check_database_zip():
         raise _fail("fetch", [f"{zip_label}: {p}" for p in problems])
     typer.echo(f"data fetch: {zip_label}: OK ({manifest.DATABASE_ZIP.bytes} bytes, the D5 pin)")
+    try:
+        unpacked = download.unpack_database()
+    except (manifest.DataError, OSError, zipfile.BadZipFile) as exc:
+        raise _fail("fetch", [str(exc)]) from None
+    tree = manifest.display(manifest.vendor_database_dir())
+    mlabel = manifest.display(manifest.manifest_path())
+    n = len(unpacked.files)
+    if not unpacked.unpacked:
+        typer.echo(f"data fetch: {tree}: {n} files match {mlabel}; nothing to unpack")
+    elif unpacked.recorded:
+        typer.echo(f"data fetch: {tree}: unpacked {n} files; sha256 recorded in {mlabel}")
+    else:
+        typer.echo(f"data fetch: {tree}: unpacked {n} files; they match {mlabel}")
 
 
 @app.command()
