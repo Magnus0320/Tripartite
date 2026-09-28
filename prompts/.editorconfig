@@ -1,0 +1,5 @@
+# Prompt files are byte-exact copies of upstream strings, pinned by sha256 in the run configs
+# (ARCHITECTURE.md D6). Editors must not add a final newline or trim whitespace.
+[*.txt]
+insert_final_newline = false
+trim_trailing_whitespace = false
