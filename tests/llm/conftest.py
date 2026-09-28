@@ -5,7 +5,10 @@ Every test not marked ``local`` reads the shared synthetic data set through
 ``tripartite.data`` is patched. Local tests read the real data under ``data/``.
 """
 
+import socket
+from collections.abc import Callable
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 
@@ -45,3 +48,23 @@ def tokenizer(stack: StackConfig, tokenizer_dir: Path) -> Tokenizer:
 @pytest.fixture
 def chat(stack: StackConfig, tokenizer_dir: Path) -> ChatTemplate:
     return load_chat_template(stack, tokenizer_dir)
+
+
+@pytest.fixture
+def no_network(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Make every connection attempt and name lookup fail, and record each attempt, so a test
+    can assert that none was made even where a caller swallows the error."""
+    attempts: list[str] = []
+
+    def blocked(name: str) -> Callable[..., NoReturn]:
+        def refuse(*_args: object, **_kwargs: object) -> NoReturn:
+            attempts.append(name)
+            raise OSError(f"network access is blocked in this test ({name})")
+
+        return refuse
+
+    monkeypatch.setattr(socket.socket, "connect", blocked("socket.connect"))
+    monkeypatch.setattr(socket.socket, "connect_ex", blocked("socket.connect_ex"))
+    monkeypatch.setattr(socket, "create_connection", blocked("socket.create_connection"))
+    monkeypatch.setattr(socket, "getaddrinfo", blocked("socket.getaddrinfo"))
+    return attempts

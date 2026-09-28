@@ -22,6 +22,7 @@ from tripartite.llm.context import (
     report_json,
     summarize,
 )
+from tripartite.llm.fake_client import FakeTokenizer
 from tripartite.llm.tokenizer import Tokenizer
 from tripartite.planner.prompt import PromptRenderer
 
@@ -79,6 +80,22 @@ def test_measure_over_the_synthetic_set(
     assert report.fits
     assert (report.tokenizer, report.revision) == ("Qwen/Qwen3-8B", stack.tokenizer.revision)
     assert (report.num_ctx, report.num_predict) == (32768, 4096)
+
+
+def test_a_fake_count_is_recorded_as_fake(chat: ChatTemplate, stack: StackConfig) -> None:
+    renderer = render_with(chat)
+
+    report = measure(
+        load_planner_inputs()[:3],
+        lambda i: renderer.render(i).text,
+        FakeTokenizer(),
+        stack=stack,
+        num_predict=4096,
+        prompt_version="v",
+        prompt_sha256="a" * 64,
+    )
+
+    assert (report.tokenizer, report.revision) == ("fake-bytes", "v1")
 
 
 def test_it_does_not_fit_when_the_budget_is_exceeded(
@@ -152,7 +169,7 @@ def run_config(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def injected(monkeypatch: pytest.MonkeyPatch, tokenizer: Tokenizer, chat: ChatTemplate) -> None:
-    monkeypatch.setattr(cli, "load_tokenizer", lambda _stack: tokenizer)
+    monkeypatch.setattr(cli, "tokenizer_from_env", lambda _stack: tokenizer)
     monkeypatch.setattr(
         cli.PromptRenderer,
         "from_config",

@@ -6,9 +6,14 @@ test (D3 test 3) can search what the server would have received. It reports
 ``prompt_eval_count == prompt_tokens`` (the local count), so the post-check runs in mode
 ``total`` and no calibration file is needed (D4). Output is at most ``num_predict`` tokens, and
 ``done_reason`` is ``"length"`` when it was cut.
+
+``FakeTokenizer`` is fake mode's tokenizer (D4 §Fake-mode tokenizer): byte-level, one token per
+UTF-8 byte with the byte value as its id, so it needs no files and no network. Its counts are
+self-consistent but are not Qwen counts, and its id ``fake-bytes@v1`` is what ``tokens.tokenizer``
+records, so a fake run can never be mistaken for a real one or reported as a result.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Final
 
 from tripartite.config import StackConfig
@@ -35,6 +40,24 @@ FAKE_OUTPUT: Final = (
 """The default reply: one day in the official line format, every field ``-``."""
 FAKE_LOAD_MS: Final = 0.0
 FAKE_MS_PER_TOKEN: Final = 0.01
+FAKE_TOKENIZER_ID: Final = "fake-bytes@v1"
+
+
+class FakeTokenizer:
+    """One token per UTF-8 byte; the id is the byte value."""
+
+    def __init__(self) -> None:
+        self.id = FAKE_TOKENIZER_ID
+
+    def encode_ids(self, text: str) -> list[int]:
+        return list(text.encode("utf-8"))
+
+    def count(self, text: str) -> int:
+        return len(text.encode("utf-8"))
+
+    def decode(self, ids: Sequence[int]) -> str:
+        """A character cut by ``num_predict`` decodes to U+FFFD, as with a byte-level BPE."""
+        return bytes(ids).decode("utf-8", errors="replace")
 
 
 class FakeClient:

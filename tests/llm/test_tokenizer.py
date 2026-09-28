@@ -10,6 +10,7 @@ from tripartite.config import StackConfig
 from tripartite.llm.errors import TokenizerError
 from tripartite.llm.tokenizer import (
     MARKER,
+    HFTokenizer,
     Tokenizer,
     check_tokenizer_dir,
     lcp,
@@ -82,4 +83,4 @@ def test_an_edited_or_missing_file_is_refused(tokenizer_dir: Path, stack: StackC
 
 def test_an_empty_folder_is_refused(tmp_path: Path, stack: StackConfig) -> None:
     with pytest.raises(TokenizerError, match="missing"):
-        Tokenizer.from_dir(tmp_path, "Qwen/Qwen3-8B", stack.tokenizer.revision)
+        HFTokenizer.from_dir(tmp_path, "Qwen/Qwen3-8B", stack.tokenizer.revision)

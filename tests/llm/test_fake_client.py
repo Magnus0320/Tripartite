@@ -5,7 +5,7 @@ import pytest
 from tests.fixtures.model.synthetic_tokenizer import expected_user_prompt
 from tripartite.config import StackConfig
 from tripartite.llm.calibration import post_check
-from tripartite.llm.fake_client import FAKE_OUTPUT, FakeClient, make_client
+from tripartite.llm.fake_client import FAKE_OUTPUT, FakeClient, FakeTokenizer, make_client
 from tripartite.llm.ollama_client import (
     GenerateOptions,
     GenerateRequest,
@@ -55,6 +55,16 @@ def test_output_is_cut_at_num_predict(tokenizer: Tokenizer) -> None:
     result = fake.generate(request("x", num_predict=2))
 
     assert (result.text, result.eval_count, result.done_reason) == ("OK", 2, "length")
+
+
+def test_the_fake_tokenizer_drives_the_fake_client() -> None:
+    prompt = expected_user_prompt("Query: a trip to Zürich")
+    fake = FakeClient(FakeTokenizer(), respond=lambda _r: "Zürich")
+
+    result = fake.generate(request(prompt, num_predict=2))
+
+    assert result.prompt_eval_count == len(prompt.encode("utf-8"))
+    assert (result.text, result.eval_count, result.done_reason) == ("Z�", 2, "length")
 
 
 def test_make_client_follows_the_environment(
