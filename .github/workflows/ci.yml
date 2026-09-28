@@ -43,6 +43,15 @@ jobs:
       - name: Install dependencies (locked)
         run: uv sync --locked
 
+      # Guarded (M2): the evalenv lock must match evalenv/pyproject.toml (FU-22).
+      - name: evalenv lock check
+        if: hashFiles('evalenv/uv.lock') != ''
+        run: uv lock --check --project evalenv
+      - name: "Guard: evalenv lock check"
+        if: hashFiles('evalenv/uv.lock') == ''
+        run: |
+          echo "skipped: evalenv/uv.lock not present yet" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: ruff check
         run: uv run ruff check
 

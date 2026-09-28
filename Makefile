@@ -28,8 +28,8 @@ endef
 	mlflow-sync mlflow-ui
 
 setup:
-	uv sync
-	$(call guarded_step,evalenv/pyproject.toml,uv sync --project evalenv)
+	uv sync --locked
+	$(call guarded_step,evalenv/pyproject.toml,uv sync --locked --project evalenv)
 	$(call guarded_step,web/package.json,npm ci --prefix web)
 
 # D4 server (D4 §make serve-model): the model session's `tripartite model serve-env` validates
@@ -66,7 +66,7 @@ resume:
 	$(TRIPARTITE) run start --resume $(RUN)
 
 eval:
-	$(TRIPARTITE) eval rescore --run $(RUN)
+	$(TRIPARTITE) run rescore --run $(RUN)
 
 reproduce-check:
 	$(TRIPARTITE) run reproduce-check --run $(RUN) --run2 $(RUN2)
