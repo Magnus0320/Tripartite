@@ -1,4 +1,38 @@
 {
+  "database_files": {
+    "accommodations/clean_accommodations_2022.csv": {
+      "bytes": 520458,
+      "sha256": "7e70cc8cb573e824267be47153a3cf7934c839f01c955fb523d18be405921d86"
+    },
+    "attractions/attractions.csv": {
+      "bytes": 817982,
+      "sha256": "8007fa851ba5b3adb205fbd298169c95116b297cef7ccd21dbea26ecce2605d8"
+    },
+    "background/citySet.txt": {
+      "bytes": 3064,
+      "sha256": "5e80edac9ccacec673d51bbeaf2d4e99339e104684988eafdb42c214ddb0ce39"
+    },
+    "background/citySet_with_states.txt": {
+      "bytes": 5921,
+      "sha256": "a3d18b5c692857cd561cbb4ad8d221ac3eb6c47af7c787a3489e3ffa184ca4d6"
+    },
+    "background/stateSet.txt": {
+      "bytes": 642,
+      "sha256": "ad8d88f7e87cf85f230abf4b69c69cd4908399c1c93049eaa466d0ce0fe6bed5"
+    },
+    "flights/clean_Flights_2022.csv": {
+      "bytes": 304807007,
+      "sha256": "8dafdb0e3f8b79ce599a1e612a772865295bc226b46e5fb278368f7255b11cee"
+    },
+    "googleDistanceMatrix/distance.csv": {
+      "bytes": 795427,
+      "sha256": "7dc1a26dc7877ae96ce63e74be0d9660bbdef96ffccaffce441128e3a4864a27"
+    },
+    "restaurants/clean_restaurant_2022.csv": {
+      "bytes": 683023,
+      "sha256": "a38ef00a3398b1ef78306a9b1851c491723d27899c6a1d4a3d6fe042929c0f26"
+    }
+  },
   "database_zip": {
     "bytes": 59039278,
     "name": "sandbox_database.zip",

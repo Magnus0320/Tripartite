@@ -1,7 +1,9 @@
 """EvalRecord and its loader (ARCHITECTURE.md D3), on synthetic files only (§8)."""
 
 import builtins
+import csv
 import dataclasses
+import json
 from pathlib import Path
 
 import pytest
@@ -10,14 +12,22 @@ from tests.data import synthetic
 from tripartite.data.planner_inputs import load_planner_inputs
 from tripartite.evaluation.records import (
     EVAL_COLUMNS,
+    INT_COLUMNS,
     EvalRecord,
+    check_bridge_row,
     load_eval_records,
     parse_local_constraint,
+    read_bridge_records,
+    to_bridge_row,
+    write_bridge_records,
 )
 
 
 def test_eval_record_carries_every_column() -> None:
-    assert tuple(f.name for f in dataclasses.fields(EvalRecord)) == ("query_id", *EVAL_COLUMNS)
+    fields = [f.name for f in dataclasses.fields(EvalRecord)]
+
+    assert fields.pop(fields.index("local_constraint") + 1) == "local_constraint_raw"  # FU-15
+    assert tuple(fields) == ("query_id", *EVAL_COLUMNS)
     assert EVAL_COLUMNS == synthetic.COLUMNS
 
 
@@ -114,3 +124,86 @@ def test_a_row_count_other_than_180_is_refused(data_dir: Path) -> None:
 
     with pytest.raises(ValueError, match="1 rows, expected 180"):
         load_eval_records()
+
+
+# --- FU-15: the bridge records file (D5 §Bridge records file) --------------------------------
+
+
+def _csv_cells(raw: Path) -> list[dict[str, str]]:
+    """The cells of validation.csv, read here independently of the loader."""
+    with (raw / "validation.csv").open(newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def assert_bridge_rows_reproduce_the_csv(raw: Path) -> None:
+    """FU-15: every string field is the CSV cell byte for byte, every integer is int(cell)."""
+    cells = _csv_cells(raw)
+    records = load_eval_records()
+    assert len(cells) == len(records) == 180
+    for cell, record in zip(cells, records, strict=True):
+        row = to_bridge_row(record)
+        assert list(row) == list(EVAL_COLUMNS)  # exactly the 11 columns, no query_id
+        for column in EVAL_COLUMNS:
+            if column in INT_COLUMNS:
+                assert type(row[column]) is int
+                assert row[column] == int(cell[column])
+            else:
+                assert type(row[column]) is str
+                assert str(row[column]).encode() == cell[column].encode()
+        line = json.dumps(row, ensure_ascii=False)
+        assert json.loads(line) == row
+
+
+def test_bridge_rows_reproduce_every_csv_cell(synthetic_raw: Path) -> None:
+    assert_bridge_rows_reproduce_the_csv(synthetic_raw)
+
+
+@pytest.mark.usefixtures("synthetic_raw")
+def test_local_constraint_raw_is_the_verbatim_cell_not_a_re_serialization() -> None:
+    records = load_eval_records()
+
+    assert records[0].local_constraint_raw == synthetic.LOCAL_CONSTRAINTS[1]
+    assert records[1].local_constraint_raw == synthetic.LOCAL_CONSTRAINTS[0]
+    for record in records:
+        assert parse_local_constraint(record.local_constraint_raw) == record.local_constraint
+        assert to_bridge_row(record)["local_constraint"] == record.local_constraint_raw
+
+
+@pytest.mark.usefixtures("synthetic_raw")
+def test_the_records_file_round_trips(tmp_path: Path) -> None:
+    records = load_eval_records()
+    path = tmp_path / "records.jsonl"
+
+    write_bridge_records(records, path)
+
+    data = path.read_bytes()
+    assert data.count(b"\n") == 180
+    assert data.endswith(b"\n")
+    assert "ünïcødé ✈".encode() in data  # ensure_ascii=False
+    assert read_bridge_records(path) == [to_bridge_row(r) for r in records]
+
+
+@pytest.mark.usefixtures("synthetic_raw")
+def test_a_records_file_of_another_length_is_refused(tmp_path: Path) -> None:
+    path = tmp_path / "records.jsonl"
+    write_bridge_records(load_eval_records()[:179], path)
+
+    with pytest.raises(ValueError, match="179 rows, expected 180"):
+        read_bridge_records(path)
+
+
+@pytest.mark.usefixtures("synthetic_raw")
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"query_id": "val-001"}, "exactly the keys"),
+        ({"days": "3"}, "days must be int"),
+        ({"budget": True}, "budget must be int"),
+        ({"local_constraint": {"house rule": None}}, "local_constraint must be str"),
+    ],
+)
+def test_a_row_of_the_wrong_shape_is_refused(change: dict[str, object], message: str) -> None:
+    row: dict[str, object] = {**to_bridge_row(load_eval_records()[0]), **change}
+
+    with pytest.raises(ValueError, match=message):
+        check_bridge_row(row)

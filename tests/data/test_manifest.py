@@ -1,8 +1,9 @@
 """Pins, ``data/MANIFEST.json`` and ``verify`` (ARCHITECTURE.md D5, §6).
 
 The first tests read the committed ``data/MANIFEST.json`` and assert that the D5 zip pin in
-code, the pin in the manifest and the D5 table all agree (the CI test D5 requires). The rest
-run ``verify`` against synthetic files in a temporary data tree.
+code, the pin in the manifest and the D5 table all agree (the CI test D5 requires), and that
+the unpacked-database sizes in code match D5's table. The rest run ``verify`` against
+synthetic files in a temporary data tree and a temporary database directory.
 """
 
 import json
@@ -11,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from tests.data import synthetic
-from tripartite.data import manifest
+from tripartite.data import download, manifest
 
 COMMITTED_MANIFEST = manifest.REPO_ROOT / "data" / "MANIFEST.json"
 
@@ -28,6 +29,18 @@ HF_PIN = {
     "revision": "8736504ecfc31b7f8b7e40122873c337e83fff7c",
 }
 HF_SIZES = {"validation.csv": 4_833_771, "validation_ref_info.jsonl": 5_052_714}
+# ARCHITECTURE.md D5 §Database — unpacking, step 5, copied by hand.
+D5_DATABASE_FILES = {
+    "background/citySet_with_states.txt": 5921,
+    "background/citySet.txt": 3064,
+    "background/stateSet.txt": 642,
+    "attractions/attractions.csv": 817982,
+    "flights/clean_Flights_2022.csv": 304807007,
+    "googleDistanceMatrix/distance.csv": 795427,
+    "restaurants/clean_restaurant_2022.csv": 683023,
+    "accommodations/clean_accommodations_2022.csv": 520458,
+}
+N_CHECKS = 4 + len(D5_DATABASE_FILES)  # manifest, two dataset files, zip, 8 database files
 
 
 def _committed() -> manifest.Manifest:
@@ -51,7 +64,20 @@ def test_the_committed_manifest_records_the_pinned_hf_revision() -> None:
 
 def test_the_committed_manifest_holds_names_sizes_and_hashes_only() -> None:
     """§8.1: nothing but names, revisions, sizes and sha256 is ever committed under data/."""
-    assert json.loads(COMMITTED_MANIFEST.read_bytes()) == _committed().model_dump(mode="json")
+    committed = json.loads(COMMITTED_MANIFEST.read_bytes())
+
+    assert committed == _committed().model_dump(mode="json", exclude_none=True)
+
+
+def test_the_database_file_sizes_agree_in_code_and_d5() -> None:
+    assert dict(manifest.EXPECTED_DATABASE_FILES) == D5_DATABASE_FILES
+
+
+def test_the_committed_manifest_records_the_eight_database_files() -> None:
+    recorded = _committed().database_files
+
+    assert recorded is not None
+    assert {path: entry.bytes for path, entry in recorded.items()} == D5_DATABASE_FILES
 
 
 def test_the_committed_manifest_is_written_canonically(tmp_path: Path) -> None:
@@ -75,19 +101,72 @@ def _problems(checks: list[manifest.Check]) -> dict[str, tuple[str, ...]]:
     return {c.label: c.problems for c in checks if not c.ok}
 
 
+def _write_matching_manifest_and_unpack(raw: Path) -> None:
+    manifest.write_manifest(synthetic.matching_manifest(raw), manifest.manifest_path())
+    download.unpack_database()
+
+
 @pytest.mark.usefixtures("synthetic_zip_pin")
 def test_verify_passes_when_everything_matches(synthetic_raw: Path) -> None:
-    manifest.write_manifest(synthetic.matching_manifest(synthetic_raw), manifest.manifest_path())
+    _write_matching_manifest_and_unpack(synthetic_raw)
 
     checks = manifest.verify()
 
     assert _problems(checks) == {}
-    assert len(checks) == 4  # manifest, two dataset files, zip
+    assert len(checks) == N_CHECKS
+    database = [c for c in checks if "/database/" in c.label]
+    assert len(database) == 8
+    assert all(" bytes, sha256 " in c.detail for c in database)
+
+
+@pytest.mark.usefixtures("synthetic_zip_pin")
+def test_verify_checks_sizes_only_before_the_hashes_are_recorded(
+    synthetic_raw: Path, vendor_database: Path
+) -> None:
+    manifest.write_manifest(synthetic.matching_manifest(synthetic_raw), manifest.manifest_path())
+    for path, data in synthetic.DATABASE_FILES.items():
+        (vendor_database / path).parent.mkdir(parents=True, exist_ok=True)
+        (vendor_database / path).write_bytes(data)
+
+    checks = manifest.verify()
+
+    assert _problems(checks) == {}
+    assert sum(c.detail.endswith("sha256 not recorded yet") for c in checks) == 8
+    (vendor_database / "background/stateSet.txt").write_bytes(b"x")
+    size = len(synthetic.DATABASE_FILES["background/stateSet.txt"])
+    label = str(vendor_database / "background/stateSet.txt")
+    assert _problems(manifest.verify()) == {label: (f"expected {size} bytes, found 1",)}
+
+
+@pytest.mark.usefixtures("synthetic_zip_pin")
+def test_verify_checks_the_recorded_sha256_of_the_unpacked_files(
+    synthetic_raw: Path, vendor_database: Path
+) -> None:
+    _write_matching_manifest_and_unpack(synthetic_raw)
+    file = vendor_database / "flights/clean_Flights_2022.csv"
+    recorded = manifest.sha256_file(file)
+    file.write_bytes(file.read_bytes().replace(b"100", b"999"))
+
+    (problem,) = _problems(manifest.verify())[str(file)]
+
+    assert problem.startswith(f"expected sha256 {recorded}, found ")
+
+
+@pytest.mark.usefixtures("synthetic_zip_pin")
+def test_verify_reports_a_database_that_is_not_unpacked(synthetic_raw: Path) -> None:
+    manifest.write_manifest(synthetic.matching_manifest(synthetic_raw), manifest.manifest_path())
+
+    problems = _problems(manifest.verify())
+
+    assert len(problems) == 8
+    assert set(problems.values()) == {
+        ("missing; run `tripartite data fetch` to unpack the database",)
+    }
 
 
 @pytest.mark.usefixtures("synthetic_zip_pin")
 def test_verify_names_expected_and_actual_values(synthetic_raw: Path) -> None:
-    manifest.write_manifest(synthetic.matching_manifest(synthetic_raw), manifest.manifest_path())
+    _write_matching_manifest_and_unpack(synthetic_raw)
     csv_path = synthetic_raw / "validation.csv"
     size = csv_path.stat().st_size
     csv_path.write_bytes(csv_path.read_bytes() + b"x")
@@ -126,7 +205,11 @@ def test_verify_explains_how_to_get_a_missing_zip(data_dir: Path) -> None:
 
 
 @pytest.mark.usefixtures("synthetic_zip_pin")
-def test_verify_reports_a_missing_manifest(data_dir: Path) -> None:
+def test_verify_reports_a_missing_manifest(data_dir: Path, vendor_database: Path) -> None:
+    for path, data in synthetic.DATABASE_FILES.items():
+        (vendor_database / path).parent.mkdir(parents=True, exist_ok=True)
+        (vendor_database / path).write_bytes(data)
+
     problems = _problems(manifest.verify())
 
     assert problems == {str(data_dir / "MANIFEST.json"): ("missing; run `tripartite data fetch`",)}
@@ -147,6 +230,34 @@ def test_verify_refuses_a_manifest_that_disagrees_with_the_pins(synthetic_raw: P
 
     assert revision == f"dataset.revision is 'main', expected '{manifest.HF_REVISION}'"
     assert zip_pin.startswith("database_zip is {'name': 'database.zip'")
+
+
+@pytest.mark.usefixtures("synthetic_zip_pin")
+def test_verify_refuses_recorded_database_files_that_disagree_with_the_code(
+    synthetic_raw: Path,
+) -> None:
+    good = synthetic.matching_manifest(synthetic_raw)
+    entry = manifest.FileEntry(bytes=1, sha256="1" * 64)
+    files = {path: entry for path in synthetic.DATABASE_FILES if "flights" not in path}
+    manifest.write_manifest(
+        good.model_copy(update={"database_files": {**files, "extra.csv": entry}}),
+        manifest.manifest_path(),
+    )
+
+    problems = _problems(manifest.verify())[str(manifest.manifest_path())]
+
+    assert problems[0].startswith("database_files lists ['accommodations/")
+    size = len(synthetic.DATABASE_FILES["attractions/attractions.csv"])
+    assert f"database_files['attractions/attractions.csv'] is 1 bytes, expected {size}" in problems
+    assert len(problems) == 1 + 7
+
+
+def test_a_manifest_without_database_files_is_written_without_the_key(tmp_path: Path) -> None:
+    path = tmp_path / "MANIFEST.json"
+    manifest.write_manifest(_committed().model_copy(update={"database_files": None}), path)
+
+    assert "database_files" not in json.loads(path.read_bytes())
+    assert manifest.load_manifest(path).database_files is None
 
 
 def test_an_invalid_manifest_is_refused(tmp_path: Path) -> None:

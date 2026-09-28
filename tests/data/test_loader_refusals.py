@@ -1,9 +1,10 @@
 """Test-split refusal (ARCHITECTURE.md D3, boundary test 4, ``test_test_split_forbidden``).
 
-CI's guarded M1 step exists because of this file. Both loaders and the downloader must refuse
-the test split, and any split or file other than the allowed ones, **before** any file or
-network access. Every refusal runs inside ``no_io()``, which replaces the file-opening
-functions and ``hf_hub_download`` with ones that fail the test if they are called.
+CI's guarded M1 step exists because of this file. Both loaders, the downloader and both
+evaluator bridges (the bridge-client part, M2) must refuse the test split, and any split or file
+other than the allowed ones, **before** any file or network access. Every refusal runs inside
+``no_io()``, which replaces the file-opening functions, ``hf_hub_download`` and
+``subprocess.Popen`` with ones that fail the test if they are called.
 """
 
 import builtins
@@ -12,6 +13,7 @@ import inspect
 import io
 import os
 import pathlib
+import subprocess
 from collections.abc import Callable, Iterator
 from typing import Any, NoReturn
 
@@ -19,7 +21,7 @@ import huggingface_hub
 import pytest
 
 from tripartite.data import download, planner_inputs
-from tripartite.evaluation import records
+from tripartite.evaluation import bridge_client, records
 
 LOADERS: list[Callable[[str], Any]] = [
     planner_inputs.load_planner_inputs,
@@ -54,6 +56,7 @@ def no_io() -> Iterator[None]:
         (pathlib.Path, "read_text"),
         (huggingface_hub, "hf_hub_download"),
         (download, "hf_hub_download"),
+        (subprocess, "Popen"),
     ]
     with pytest.MonkeyPatch.context() as mp:
         for target, name in targets:
@@ -120,3 +123,43 @@ def test_no_io_catches_the_file_access_of_a_real_load(loader: Callable[[str], An
 def test_no_io_catches_a_real_download() -> None:
     with no_io(), pytest.raises(ForbiddenAccessError):
         download.fetch_dataset_file("validation.csv")
+
+
+# --- the evaluator bridges (D3 test 4, bridge-client part; D5) ------------------------------
+
+BRIDGES: list[Callable[[], bridge_client.EvaluatorBridge]] = [
+    bridge_client.RealBridge,
+    bridge_client.FakeBridge,
+]
+BRIDGE_IDS = ["RealBridge", "FakeBridge"]
+PLANS = pathlib.Path("/nonexistent/plans.jsonl")
+RECORDS = pathlib.Path("/nonexistent/records.jsonl")
+
+
+@pytest.mark.parametrize("make", BRIDGES, ids=BRIDGE_IDS)
+@pytest.mark.parametrize("split", ["test", "TEST", " Test "])
+def test_the_bridges_refuse_the_test_split_before_any_io(
+    make: Callable[[], bridge_client.EvaluatorBridge], split: str
+) -> None:
+    bridge = make()
+    with no_io(), pytest.raises(planner_inputs.TestSplitForbiddenError):
+        bridge.aggregate(PLANS, RECORDS, split)
+
+
+@pytest.mark.parametrize("make", BRIDGES, ids=BRIDGE_IDS)
+@pytest.mark.parametrize("split", ["train", "valid", "Validation", ""])
+def test_the_bridges_refuse_any_other_split_before_any_io(
+    make: Callable[[], bridge_client.EvaluatorBridge], split: str
+) -> None:
+    bridge = make()
+    with no_io(), pytest.raises(ValueError, match="only 'validation'"):
+        bridge.aggregate(PLANS, RECORDS, split)
+
+
+@pytest.mark.parametrize("make", BRIDGES, ids=BRIDGE_IDS)
+def test_no_io_catches_a_real_aggregate(make: Callable[[], bridge_client.EvaluatorBridge]) -> None:
+    """Not vacuous: the validation split does reach a file or a subprocess, and trips it."""
+    bridge = make()
+    with no_io(), pytest.raises(ForbiddenAccessError):
+        bridge.aggregate(PLANS, RECORDS, "validation")
+    bridge.close()

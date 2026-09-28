@@ -1,0 +1,23 @@
+# The evaluator's own environment (ARCHITECTURE.md D5 §Separate environment). Owner: data-eval.
+#
+# The vendored TravelPlanner evaluator (vendor/travelplanner/) runs here, never in the main
+# environment: gradio would conflict with the main project's FastAPI pins, and the evaluator
+# has import-time side effects (os.chdir, module globals). It runs only as the subprocess
+# evalenv/bridge.py, started by tripartite.evaluation.bridge_client.RealBridge. pandas stays on
+# 2.2.x as D5 pins it; the lock (evalenv/uv.lock) fixes every version.
+[project]
+name = "tripartite-evalenv"
+version = "0.1.0"
+description = "Environment for the vendored TravelPlanner evaluator (ARCHITECTURE.md D5)."
+requires-python = "==3.12.*"
+dependencies = [
+    "datasets>=5.0.1",
+    "gradio>=6.28.0",
+    "numpy>=2.5.3",
+    "pandas>=2.2.3,<2.3",
+    "requests>=2.34.2",
+    "tqdm>=4.70.1",
+]
+
+[tool.uv]
+package = false
