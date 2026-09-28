@@ -189,3 +189,26 @@ Append-only. Never edit or delete an entry. To change one, add a new entry that 
 - Why needed: D5 §Bridge records file serializes each row exactly as `load_dataset` would return it, so that `eval.py` and the constraint modules see the same types as upstream. Several checks compare or multiply the integers, and would fail silently rather than crash if given strings.
 - How it was checked: The features of the validation config were read from `https://datasets-server.huggingface.co/info?dataset=osunlp/TravelPlanner&config=validation` on 2026-09-26. The response names revision `8736504ecfc31b7f8b7e40122873c337e83fff7c` and 180 examples, and lists exactly those eleven features with those dtypes (all `_type: Value`). The source at `e52c87f4` agrees: `eval.py` converts only `local_constraint` from a string (lines 74–75), and nothing in the evaluator reads `date`, `query` or `reference_information`. FU-15's test that `to_bridge_row` reproduces every CSV cell, and the four integers as `int(cell)`, guards the serialization side.
 - Status: confirmed
+
+### A-027
+- Date: 2026-09-28 · Architecture: v0.8
+- Confirms: A-014. A-014 itself is unchanged.
+- Assumption: Every commonsense and hard check of the evaluator at `e52c87f4` returns a pair `(value, message)` with `value ∈ {True, False, None}`, where None means not applicable.
+- Why needed: The constraint status mapping in D5 (`pass`, `fail`, `not_applicable`, `not_evaluated`).
+- How it was checked: M2 (`5385ea2`, merged in `8378f2a`) ran the real bridge over all 180 plans of the vendored `postprocess/example_evaluation.jsonl` and committed the results as `tests/fixtures/eval_golden/per_plan.jsonl`. Every key in all 180 per-plan results, commonsense and hard, is a `[value, message]` pair with a value of `true`, `false` or `null`.
+- Status: confirmed
+
+### A-028
+- Date: 2026-09-28 · Architecture: v0.8
+- Supersedes: A-017, narrowing it. A-017 itself is unchanged.
+- Assumption: (a) The vendored code is MIT, from the upstream `LICENSE` at `e52c87f4`; confirmed. (b) The HF dataset `osunlp/TravelPlanner` is CC BY 4.0, from its dataset card; confirmed. (c) Still open: the sandbox database downloaded from Google Drive has no licence statement of its own. The upstream README only says that extending its database is permitted "provided that you adhere to the licensing terms". We treat it as covered by the dataset's CC BY 4.0, since the same authors publish it as part of the same benchmark, and we keep what we commit from it minimal: entity names inside evaluator messages in `tests/fixtures/eval_golden/per_plan.jsonl`, attributed in `NOTICE`. The file never commits database rows (§8.3).
+- Why needed: The M2 golden fixtures are committed to a public repository. (a) and (b) cover the vendored code, upstream's own sample submission and the `queries.jsonl` exception in §8.1; (c) covers the entity names in the per-plan messages.
+- How to check: Look for a licence file or statement in the Google Drive folder that hosts the database, or ask the upstream authors (an issue on OSU-NLP-Group/TravelPlanner). If they state a licence other than CC BY 4.0, or forbid redistribution, drop the messages from `per_plan.jsonl` (the golden test needs only the values) and record that in a new entry.
+- Status: open
+
+### A-029
+- Date: 2026-09-28 · Architecture: v0.8
+- Assumption: The pinned Ollama version serves `GET /api/version` (returning a `version` field) and `GET /api/tags` (listing every installed model with `name`/`model` and `digest`) without loading any model, and each normally answers within 1 s on the M4 Pro. The digest in `/api/tags` equals the full sha256 pinned in `configs/stack.yaml`, possibly without the `sha256:` prefix.
+- Why needed: D4 §Health checks: `model_reachable` and `model_digest_ok` must be cheap, must never trigger a load, and must not report false while the model is merely unloaded.
+- How to check: In M3 or FU-17, against the dedicated server: call both endpoints with no model loaded (`/api/ps` empty), confirm `/api/ps` is still empty afterwards, time them, and compare the `/api/tags` digest with `stack.yaml`. Record the result as a new entry that names A-029.
+- Status: open
