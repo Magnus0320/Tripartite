@@ -6,8 +6,10 @@
 - ``serve-env [--format sh]``: validate ``configs/stack.yaml`` and print ``runtime.env`` for
   ``make serve-model``.
 - ``doctor``: check the running stack against the pins (``tripartite.llm.doctor``).
-- ``measure-context``: step 1 of ``make measure-context``; tokenizer only.
-- ``calibrate``: step 2; needs the dedicated server.
+- ``measure-context``: step 1 of ``make measure-context``; tokenizer only. It counts with
+  ``tokenizer_from_env()``, so under ``TRIPARTITE_LLM=fake`` it runs without a tokenizer on disk
+  and its report names ``fake-bytes@v1``, which ``calibrate`` refuses.
+- ``calibrate``: step 2; needs the dedicated server, so it refuses fake mode.
 
 Every command exits 1 on failure and says why.
 """
@@ -61,7 +63,7 @@ from tripartite.llm.ollama_client import (
 from tripartite.llm.tokenizer import (
     TOKENIZER_FILES,
     check_tokenizer_dir,
-    load_tokenizer,
+    tokenizer_from_env,
     write_marker,
 )
 from tripartite.planner.prompt import PromptError, PromptRenderer
@@ -246,7 +248,7 @@ def measure_context(
     stack = _stack("measure-context")
     try:
         run = load_run_config(config)
-        tokenizer = load_tokenizer(stack)
+        tokenizer = tokenizer_from_env(stack)
         renderer = PromptRenderer.from_config(run, stack)
         inputs = load_planner_inputs()
     except (ConfigError, LLMError, PromptError, DataError, OSError, ValueError) as exc:
@@ -314,7 +316,7 @@ def calibrate(
     try:
         run = load_run_config(config)
         measured = load_context_report(context_report)
-        tokenizer = load_tokenizer(stack)
+        tokenizer = tokenizer_from_env(stack)
         renderer = PromptRenderer.from_config(run, stack)
         inputs = {inp.query_id: inp for inp in load_planner_inputs()}
     except (ConfigError, LLMError, PromptError, DataError, OSError, ValueError) as exc:

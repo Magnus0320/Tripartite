@@ -18,7 +18,8 @@ from typing import Final, Self
 
 from tripartite.config import REPO_ROOT, RunConfig, StackConfig, load_run_config, load_stack
 from tripartite.data.planner_inputs import PlannerInput
-from tripartite.llm.chat_template import ChatTemplate, load_chat_template
+from tripartite.llm.chat_template import ChatTemplate, load_chat_template, template_from_env
+from tripartite.llm.ollama_client import llm_mode
 
 PROMPT_VERSION: Final = "sp-direct-v1"
 PROMPT_PATH: Final = REPO_ROOT / "prompts" / "sole_planning_direct_v1.txt"
@@ -73,8 +74,15 @@ class PromptRenderer:
     def from_config(
         cls, run: RunConfig, stack: StackConfig, *, tokenizer_dir: Path | None = None
     ) -> Self:
+        """The run config's prompt with the pinned chat template in ``tokenizer_dir``, or with
+        ``template_from_env``'s (fake mode's fixed template under ``TRIPARTITE_LLM=fake``)."""
         template = load_template(run.prompt_path, run.prompt.sha256)
-        return cls(template, load_chat_template(stack, tokenizer_dir), run.prompt.version)
+        chat = (
+            template_from_env(stack)
+            if tokenizer_dir is None
+            else load_chat_template(stack, tokenizer_dir)
+        )
+        return cls(template, chat, run.prompt.version)
 
     def render(self, inp: PlannerInput) -> RenderedPrompt:
         _require_planner_input(inp)
@@ -85,9 +93,14 @@ class PromptRenderer:
         )
 
 
-@functools.cache
 def default_renderer() -> PromptRenderer:
-    """The production renderer: ``configs/baseline.yaml``'s prompt, the pinned chat template."""
+    """The production renderer: ``configs/baseline.yaml``'s prompt and ``template_from_env``'s
+    chat template, built once per ``TRIPARTITE_LLM`` mode."""
+    return _default_renderer(llm_mode())
+
+
+@functools.cache
+def _default_renderer(_mode: str) -> PromptRenderer:
     run = load_run_config()
     return PromptRenderer.from_config(run, load_stack(run.stack_path))
 

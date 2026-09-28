@@ -10,6 +10,12 @@ filled at another revision, or edited by hand, is refused rather than silently u
 A raw prompt is encoded with ``add_special_tokens=False``: the chat template already wrote every
 special token into the text, and the tokenizer matches them there as single tokens, as the
 runtime does with ``raw: true``.
+
+``Tokenizer`` is what the model layer needs from a tokenizer. ``HFTokenizer`` is the pinned one;
+fake mode has ``FakeTokenizer`` (``tripartite.llm.fake_client``), so CI, which has no network and
+no tokenizer folder, never needs the real files (D4 §Fake-mode tokenizer). Functions take the
+tokenizer as an argument; ``tokenizer_from_env()`` is only the default the pipeline, the CLI and
+the API use.
 """
 
 import hashlib
@@ -17,13 +23,14 @@ import json
 import os
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Final
+from typing import Final, Protocol
 
 import tokenizers
 from pydantic import BaseModel, ConfigDict, NonNegativeInt, ValidationError
 
-from tripartite.config import StackConfig
+from tripartite.config import StackConfig, load_stack
 from tripartite.llm.errors import TokenizerError
+from tripartite.llm.ollama_client import llm_mode
 
 TOKENIZER_FILES: Final = ("tokenizer.json", "tokenizer_config.json")
 MARKER: Final = ".pinned.json"
@@ -90,15 +97,28 @@ def check_tokenizer_dir(directory: Path, repo: str, revision: str) -> list[str]:
     return problems
 
 
-class Tokenizer:
-    """A loaded tokenizer and its ``<repo>@<revision>`` id (D7 ``tokens.tokenizer``)."""
+class Tokenizer(Protocol):
+    """A tokenizer and its ``<repo>@<revision>`` id (D7 ``tokens.tokenizer``)."""
+
+    @property
+    def id(self) -> str: ...
+
+    def encode_ids(self, text: str) -> list[int]: ...
+
+    def count(self, text: str) -> int: ...
+
+    def decode(self, ids: Sequence[int]) -> str: ...
+
+
+class HFTokenizer:
+    """The pinned HF tokenizer, loaded from ``tokenizer.json``."""
 
     def __init__(self, inner: tokenizers.Tokenizer, tokenizer_id: str) -> None:
         self._inner = inner
         self.id = tokenizer_id
 
     @classmethod
-    def from_dir(cls, directory: Path, repo: str, revision: str) -> "Tokenizer":
+    def from_dir(cls, directory: Path, repo: str, revision: str) -> "HFTokenizer":
         problems = check_tokenizer_dir(directory, repo, revision)
         if problems:
             raise TokenizerError("; ".join(problems))
@@ -115,13 +135,24 @@ class Tokenizer:
         return self._inner.decode(list(ids), skip_special_tokens=False)
 
 
-def load_tokenizer(stack: StackConfig, directory: Path | None = None) -> Tokenizer:
+def load_tokenizer(stack: StackConfig, directory: Path | None = None) -> HFTokenizer:
     """The pinned tokenizer from ``tokenizer.local_dir`` (or ``directory``), checked first."""
-    return Tokenizer.from_dir(
+    return HFTokenizer.from_dir(
         stack.tokenizer_dir if directory is None else directory,
         stack.tokenizer.repo,
         stack.tokenizer.revision,
     )
+
+
+def tokenizer_from_env(stack: StackConfig | None = None) -> Tokenizer:
+    """The default tokenizer: ``FakeTokenizer`` when ``TRIPARTITE_LLM=fake``, without reading
+    ``configs/stack.yaml`` or ``tokenizer.local_dir`` and without the network; otherwise the pinned
+    tokenizer of ``stack`` (default ``configs/stack.yaml``), checked by ``load_tokenizer``."""
+    if llm_mode() == "fake":
+        from tripartite.llm.fake_client import FakeTokenizer  # fake_client imports this module
+
+        return FakeTokenizer()
+    return load_tokenizer(load_stack() if stack is None else stack)
 
 
 def lcp(a: Sequence[int], b: Sequence[int]) -> int:

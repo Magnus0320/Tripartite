@@ -40,6 +40,16 @@ def test_prompt_purity(tmp_path: Path) -> None:
         assert renderer.render(other_id).text == renderer.render(inp).text
 
 
+def test_prompt_purity_through_the_fake_mode_default() -> None:
+    """The production path as CI and web development run it: ``render_prompt`` with fake mode's
+    fixed Qwen3 template from ``template_from_env`` (D4 §Fake-mode tokenizer)."""
+    inputs = load_planner_inputs()
+
+    assert len(inputs) == 180
+    for inp in inputs:
+        assert render_prompt(inp).text.encode("utf-8") == expected_prompt(inp)
+
+
 @pytest.mark.local
 def test_prompt_purity_over_the_real_validation_set() -> None:
     inputs = load_planner_inputs()

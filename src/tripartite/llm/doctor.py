@@ -21,23 +21,39 @@ Checks, each reported as one line (``ok``, ``warn``, ``fail`` or ``info``):
 Any ``fail`` makes doctor exit 1, so any runtime pin that differs from ``configs/stack.yaml``
 fails it (D1). ``iogpu.wired_limit_mb`` and Metal's ``recommendedMaxWorkingSetSize`` from the
 server log are reported as information (A-005).
+
+``model_reachable`` and ``model_digest_ok`` are the two cheap model flags of ``/api/health`` (D4
+§Health checks, D8; FU-17). Each sends one ``GET`` (``/api/version``, ``/api/tags``) and takes
+at most 1.0 s in total. Neither sends a generate request, so neither can load the model, and
+``/api/tags`` lists the model whether or not it is loaded. They never raise: any error, timeout
+or missing ``configs/stack.yaml`` is ``False``. In fake mode both are ``True`` without any
+network call.
 """
 
 import os
 import re
 import subprocess
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
+import httpx
 from filelock import FileLock, Timeout
 
-from tripartite.config import MODEL_LOCK_PATH, SERVER_LOG_PATH, StackConfig, host_port
+from tripartite.config import (
+    MODEL_LOCK_PATH,
+    SERVER_LOG_PATH,
+    STACK_PATH,
+    StackConfig,
+    host_port,
+    load_stack,
+)
 from tripartite.data import manifest
 from tripartite.llm.calibration import CALIBRATION_REPORT_PATH, calibration_status
 from tripartite.llm.errors import LLMError, TransportError
-from tripartite.llm.ollama_client import DesktopApp, OllamaClient, RunningModel
+from tripartite.llm.ollama_client import DesktopApp, OllamaClient, RunningModel, llm_mode
 from tripartite.llm.tokenizer import check_tokenizer_dir
 
 Level = Literal["ok", "warn", "fail", "info"]
@@ -51,6 +67,8 @@ CALIBRATION_LEVELS: Final[dict[str, Level]] = {
 """Calibration comes after doctor (D4), so a missing or stale report is only a warning."""
 GO_MAX_DURATION: Final = "2562047h47m16.854775807s"
 """How Go prints ``math.MaxInt64`` nanoseconds: Ollama's keep-alive for ``-1`` (forever)."""
+HEALTH_TIMEOUT_S: Final = 1.0
+"""The total time a health check may take, loading ``configs/stack.yaml`` included (D4)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,3 +396,79 @@ def run_doctor(stack: StackConfig, deps: DoctorDeps) -> list[Check]:
         detail = "not in the server log"
     checks.append(Check("recommendedMaxWorkingSetSize", "info", detail))
     return checks
+
+
+# --- /api/health (FU-17) ------------------------------------------------------------------------
+
+
+def _health(
+    check: Callable[[StackConfig, httpx.Client], bool],
+    stack: StackConfig | Path,
+    transport: httpx.BaseTransport | None,
+) -> bool:
+    """Run ``check`` against the dedicated server in a daemon thread, so that 1.0 s bounds the
+    whole call (httpx's timeouts are per phase); ``False`` on any exception or on overrun."""
+    try:
+        if llm_mode() == "fake":
+            return True
+    except ValueError:
+        return False
+    result: list[bool] = []
+
+    def run() -> None:
+        try:
+            config = load_stack(stack) if isinstance(stack, Path) else stack
+            with httpx.Client(
+                base_url=config.runtime.url, timeout=HEALTH_TIMEOUT_S, transport=transport
+            ) as client:
+                result.append(check(config, client))
+        except Exception:  # never raise (D4): whatever went wrong, the flag is false
+            result.append(False)
+
+    thread = threading.Thread(target=run, name="model-health", daemon=True)
+    thread.start()
+    thread.join(HEALTH_TIMEOUT_S)
+    return bool(result) and result[0]
+
+
+def _get_json(client: httpx.Client, path: str) -> Any:
+    """The JSON body of ``GET path`` if the status is exactly 200, else None."""
+    response = client.get(path)
+    return response.json() if response.status_code == 200 else None
+
+
+def _answers_version(_stack: StackConfig, client: httpx.Client) -> bool:
+    data = _get_json(client, "/api/version")
+    return isinstance(data, dict) and "version" in data
+
+
+def _lists_pinned_digest(stack: StackConfig, client: httpx.Client) -> bool:
+    data = _get_json(client, "/api/tags")
+    models = data.get("models") if isinstance(data, dict) else None
+    if not isinstance(models, list):
+        return False
+    return any(
+        isinstance(m, dict)
+        and stack.model.tag in (m.get("name"), m.get("model"))
+        and isinstance(m.get("digest"), str)
+        and m["digest"].removeprefix("sha256:") == stack.digest_hex
+        for m in models
+    )
+
+
+def model_reachable(
+    stack: StackConfig | Path = STACK_PATH, *, transport: httpx.BaseTransport | None = None
+) -> bool:
+    """Whether the dedicated server answers ``GET /api/version`` with HTTP 200 and a ``version``
+    field within 1.0 s. ``stack`` is a loaded config or the path of one (default
+    ``configs/stack.yaml``); ``transport`` is for tests."""
+    return _health(_answers_version, stack, transport)
+
+
+def model_digest_ok(
+    stack: StackConfig | Path = STACK_PATH, *, transport: httpx.BaseTransport | None = None
+) -> bool:
+    """Whether ``GET /api/tags`` lists an entry whose ``name`` (or ``model``) is ``model.tag``
+    and whose digest, without any ``sha256:`` prefix, is ``model.digest``, within 1.0 s. It does
+    not check the Ollama version; ``make doctor`` does."""
+    return _health(_lists_pinned_digest, stack, transport)

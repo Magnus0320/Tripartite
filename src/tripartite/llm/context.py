@@ -104,9 +104,11 @@ def measure(
     ]
     summary = {name: summarize([getattr(q, name) for q in per_query]) for name in SUMMARY_FIELDS}
     headroom = prompt_budget(stack.model.num_ctx, num_predict) - summary["prompt_tokens"].max
+    # The tokenizer that counted, not the pin: a fake-mode report says fake-bytes@v1 (D4).
+    repo, _, revision = tokenizer.id.rpartition("@")
     return ContextReport(
-        tokenizer=stack.tokenizer.repo,
-        revision=stack.tokenizer.revision,
+        tokenizer=repo,
+        revision=revision,
         num_ctx=stack.model.num_ctx,
         num_predict=num_predict,
         prompt_version=prompt_version,
