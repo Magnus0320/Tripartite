@@ -212,3 +212,83 @@ Append-only. Never edit or delete an entry. To change one, add a new entry that 
 - Why needed: D4 §Health checks: `model_reachable` and `model_digest_ok` must be cheap, must never trigger a load, and must not report false while the model is merely unloaded.
 - How to check: In M3 or FU-17, against the dedicated server: call both endpoints with no model loaded (`/api/ps` empty), confirm `/api/ps` is still empty afterwards, time them, and compare the `/api/tags` digest with `stack.yaml`. Record the result as a new entry that names A-029.
 - Status: open
+
+### A-030
+- Date: 2026-09-28 · Architecture: v0.9
+- Confirms: A-009. A-009 itself is unchanged.
+- Assumption: The in-context example in the official `PLANNER_INSTRUCTION` (Ithaca→Charlotte, flight F3633413, "Nagaland's Kitchen") is not copied from an `annotated_plan` in the train split. The validation split has no `annotated_plan` column (F7).
+- Why needed: The brief's non-negotiable forbids showing agents annotated or reference plans; D6 uses the official prompt verbatim; M4 was gated on this.
+- How it was checked: On 2026-09-28 the user ran, in the Hugging Face SQL console for `osunlp/TravelPlanner`, on the train split: `SELECT count(*) FILTER (WHERE annotated_plan ILIKE '%F3633413%'), count(*) FILTER (WHERE annotated_plan ILIKE '%Nagaland%'), count(*) FROM train;`. The result was 0, 0 and 45: no train plan contains the flight number or the restaurant, across all 45 rows. The viewer serves the dataset's current revision. On 2026-09-28 the Hugging Face API still reported that revision as `8736504ecfc31b7f8b7e40122873c337e83fff7c`, last modified 2024-07-14, the revision pinned in F7 and §6, so the check applies to the pinned data.
+- Status: confirmed
+
+### A-031
+- Date: 2026-09-28 · Architecture: v0.9
+- Supersedes: A-005. A-005 itself is unchanged.
+- Assumption: On the user's 24 GB M4 Pro, with the macOS default `iogpu.wired_limit_mb = 0`, the GPU (Metal) budget is **17.8 GiB**, not the ~16 GB of the llama.cpp 2/3 heuristic.
+- Why needed: The memory ceiling for D4's model, quantization and context choice, and for any later multi-agent phase (Brief issue 4).
+- How it was checked: M3 (`88d9555`, merged in `2c2367c`). Ollama 0.33.2 does not log `recommendedMaxWorkingSetSize`. Its server log shows Metal `total="17.8 GiB"` and `18185 MiB free`, and `sysctl iogpu.wired_limit_mb` returned 0.
+- Status: confirmed
+
+### A-032
+- Date: 2026-09-28 · Architecture: v0.9
+- Confirms: A-018. A-018 itself is unchanged.
+- Assumption: Ollama's `qwen3:8b-q4_K_M` tokenizer gives exactly the same token count as HF `Qwen/Qwen3-8B` at the pinned revision for the raw rendered prompt.
+- Why needed: Local counts are canonical (D7, S4), and the post-check compares them with the runtime's.
+- How it was checked: M3 calibration: on all 9 cold probes (`val-001`…`val-009`, each after an unload), `prompt_eval_count` equalled the local `prompt_tokens` exactly.
+- Status: confirmed
+
+### A-033
+- Date: 2026-09-28 · Architecture: v0.9
+- Confirms: A-019. A-019 itself is unchanged.
+- Assumption: The pinned Ollama version's prompt-token reporting fits exactly one of the three calibration modes. It fits mode `total`: `prompt_eval_count` counts the whole prompt even when part of it is cached.
+- Why needed: The D4 post-check. Under `total`, it is plain equality, `prompt_eval_count == prompt_tokens`.
+- How it was checked: M3 calibration classified the runtime as `total` from the warm probes (an identical re-send, and a prompt sharing only the instruction prefix). The result is committed in `reports/token_calibration.json`.
+- Status: confirmed
+
+### A-034
+- Date: 2026-09-28 · Architecture: v0.9
+- Confirms: A-021. A-021 itself is unchanged.
+- Assumption: `POST /api/generate {"model": <tag>, "keep_alive": 0}` unloads the model, and the next request loads it fresh with an empty cache.
+- Why needed: The cold calibration probes are uncached by construction only if an unload clears the cache.
+- How it was checked: M3 calibration: before each of the 9 cold probes the model was absent from `/api/ps`, and each response reported a fresh load (`load_duration` 2.0–2.6 s) with the full prompt evaluated.
+- Status: confirmed
+
+### A-035
+- Date: 2026-09-28 · Architecture: v0.9
+- Confirms: A-022. A-022 itself is unchanged.
+- Assumption: A dedicated `ollama serve` started from `configs/stack.yaml`'s `runtime.env` honours those variables, and its HTTP API exposes enough for `doctor` to confirm the effective context length and the loaded model's digest.
+- Why needed: `doctor` is the gate that stops runs on a server whose settings differ from the pins, which keeps the calibration valid.
+- How it was checked: M3: with the server started by `make serve-model`, `/api/ps` showed `context_length` 32768 for the loaded model, matching `model.num_ctx`, and the digest matched `configs/stack.yaml`.
+- Status: confirmed
+
+### A-036
+- Date: 2026-09-28 · Architecture: v0.9
+- Supersedes: A-020. A-020 itself is unchanged.
+- Assumption: None needed. A-020 (the prompt cache reuses at most the prefix shared with the previous prompt) supported only the lower bound of the post-check in mode `uncached_only`. Calibration found mode `total` (A-033), where the post-check is plain equality and uses no `lcp` bound.
+- Why needed: To record that the D4 post-check no longer depends on A-020.
+- How to check: If a future Ollama version or re-calibration reports mode `uncached_only`, A-020 becomes relevant again and must be re-tested by the calibration's A, B, A probe (D4 §Token calibration, step 3 (iii)).
+- Status: retired
+
+### A-037
+- Date: 2026-09-28 · Architecture: v0.9
+- Confirms: A-006, with a correction. A-006 itself is unchanged.
+- Assumption: Every validation prompt fits in `num_ctx` 32768 together with `num_predict` 4096 and the 256-token margin.
+- Why needed: `num_ctx` is a fixed pin (D4), and truncation is a hard error.
+- How it was checked: M3's `make measure-context` (`reports/context_report.json`): `prompt_tokens` min 4,885, median 10,808, p95 17,768, max 20,214. The maximum is slightly above A-006's predicted 15–20k for the reference information alone, because it counts the whole rendered prompt. `fits = true`, with headroom 8,202 of 28,416.
+- Status: confirmed
+
+### A-038
+- Date: 2026-09-28 · Architecture: v0.9
+- Confirms: A-011 (the resident size; below the estimate). A-011 itself is unchanged.
+- Assumption: With D4's settings the model's resident memory stays well within the GPU budget, leaving room for macOS, dev tools and the Claude apps.
+- Why needed: The choice of Q4_K_M with an f16 KV cache at 32k (D4).
+- How it was checked: M3: loaded model 9.91 GB (9.23 GiB, all in VRAM); runner peak 9.58 GiB during calibration; KV cache logged at 4,608 MiB, exactly D4's arithmetic (147,456 B/token × 32,768). This is below A-011's ~11 GB estimate and inside the 17.8 GiB budget (A-031). Memory pressure and swap over a long run with the usual apps open were not measured; M4's smoke run records them together with A-010.
+- Status: confirmed
+
+### A-039
+- Date: 2026-09-28 · Architecture: v0.9
+- Confirms: A-029. A-029 itself is unchanged.
+- Assumption: The pinned Ollama version serves `GET /api/version` and `GET /api/tags` quickly without loading any model, and `/api/tags` reports the pinned digest.
+- Why needed: D4 §Health checks: `model_reachable` and `model_digest_ok` must be cheap, must never load the model, and must not report false while the model is merely unloaded.
+- How it was checked: The model follow-ups after M3 (`e7043f7`, merged in `28b6a01`): with the model loaded or not, both checks returned true in 3–29 ms; with no server, false in 3–25 ms. `/api/ps` was empty before and after 20 calls, and the server log shows only `/api/version` and `/api/tags` requests.
+- Status: confirmed
