@@ -42,18 +42,21 @@ def test_the_fake_bridge_does_not_deliver_an_empty_plan(records: list[EvalRecord
 
 
 def test_the_fake_bridge_passes_every_applicable_check(records: list[EvalRecord]) -> None:
-    with_constraints = FakeBridge().per_plan(records[0], [{"days": 1}])  # odd rows: canaries
-    without = FakeBridge().per_plan(records[1], [{"days": 1}])  # even rows: all None
+    odd = FakeBridge().per_plan(records[0], [{"days": 1}])  # all but 'room type' set
+    even = FakeBridge().per_plan(records[1], [{"days": 1}])  # only 'room type' set
 
-    assert with_constraints.commonsense == dict.fromkeys(COMMONSENSE_KEYS, (True, None))
-    assert with_constraints.hard == {
+    assert odd.commonsense == even.commonsense == dict.fromkeys(COMMONSENSE_KEYS, (True, None))
+    assert odd.hard == {
         "valid_cost": (True, None),
         "valid_room_rule": (True, None),
         "valid_cuisine": (True, None),
-        "valid_room_type": (None, None),  # 'room type': None in the synthetic set
+        "valid_room_type": (None, None),
         "valid_transportation": (True, None),
     }
-    assert without.hard == {key: (None, None) for key in HARD_KEYS} | {"valid_cost": (True, None)}
+    assert even.hard == {key: (None, None) for key in HARD_KEYS} | {
+        "valid_cost": (True, None),
+        "valid_room_type": (True, None),
+    }
 
 
 def test_the_fake_bridge_returns_the_results_it_was_given(records: list[EvalRecord]) -> None:

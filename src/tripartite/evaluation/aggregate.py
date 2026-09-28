@@ -62,7 +62,7 @@ class ScoredQuery(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class Metrics:
+class OfficialScores:
     """The six official scores (rates in [0, 1]) and ``eval_score``'s detailed breakdown."""
 
     scores: dict[OfficialMetric, float]
@@ -112,7 +112,7 @@ def _cell(query: ScoredQuery) -> tuple[str, int]:
     return query.level, query.days
 
 
-def aggregate(results: Sequence[PerPlanResult], records: Sequence[ScoredQuery]) -> Metrics:
+def aggregate(results: Sequence[PerPlanResult], records: Sequence[ScoredQuery]) -> OfficialScores:
     """The official metrics of ``results``, one per query of ``records``, in the same order."""
     n = len(records)
     if n == 0 or len(results) != n:
@@ -174,7 +174,7 @@ def aggregate(results: Sequence[PerPlanResult], records: Sequence[ScoredQuery]) 
         "Commonsense Constraint": _paper_terms(commonsense_stats),
         "Hard Constraint": _paper_terms(hard_stats),
     }
-    return Metrics(scores=scores, detailed=detailed)
+    return OfficialScores(scores=scores, detailed=detailed)
 
 
 def _paper_terms(stats: dict[str, dict[int, Tally]]) -> dict[str, Any]:

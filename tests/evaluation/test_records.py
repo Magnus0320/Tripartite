@@ -59,9 +59,12 @@ def test_records_keep_the_types_the_evaluator_receives() -> None:
         "room type": None,
         "transportation": "CANARY_TRANSPORT_7f3a",
     }
-    assert records[1].local_constraint == dict.fromkeys(
-        ("house rule", "cuisine", "room type", "transportation")
-    )
+    assert records[1].local_constraint == {
+        "house rule": None,
+        "cuisine": None,
+        "room type": "CANARY_ROOM_even_002",
+        "transportation": None,
+    }
 
 
 @pytest.mark.usefixtures("synthetic_raw")
@@ -162,8 +165,8 @@ def test_bridge_rows_reproduce_every_csv_cell(synthetic_raw: Path) -> None:
 def test_local_constraint_raw_is_the_verbatim_cell_not_a_re_serialization() -> None:
     records = load_eval_records()
 
-    assert records[0].local_constraint_raw == synthetic.LOCAL_CONSTRAINTS[1]
-    assert records[1].local_constraint_raw == synthetic.LOCAL_CONSTRAINTS[0]
+    assert records[0].local_constraint_raw == synthetic.local_constraint(1)
+    assert records[1].local_constraint_raw == synthetic.local_constraint(2)
     for record in records:
         assert parse_local_constraint(record.local_constraint_raw) == record.local_constraint
         assert to_bridge_row(record)["local_constraint"] == record.local_constraint_raw

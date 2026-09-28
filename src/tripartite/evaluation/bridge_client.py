@@ -42,7 +42,7 @@ from typing import IO, Any, Final, Protocol, Self, cast
 
 from tripartite.data.manifest import REPO_ROOT
 from tripartite.data.planner_inputs import query_id_for, require_validation_split
-from tripartite.evaluation.aggregate import LOCAL_CONSTRAINTS, Metrics, aggregate
+from tripartite.evaluation.aggregate import LOCAL_CONSTRAINTS, OfficialScores, aggregate
 from tripartite.evaluation.constraints import (
     COMMONSENSE_KEYS,
     HARD_KEYS,
@@ -92,7 +92,7 @@ class EvaluatorBridge(Protocol):
 
     def aggregate(
         self, plans_path: Path, records_path: Path, set_type: str = "validation"
-    ) -> Metrics: ...
+    ) -> OfficialScores: ...
 
     def close(self) -> None: ...
 
@@ -138,8 +138,8 @@ def parse_per_plan(query_id: str, response: Mapping[str, Any]) -> PerPlanResult:
     return result
 
 
-def parse_metrics(response: Mapping[str, Any]) -> Metrics:
-    """An ``aggregate`` response as ``Metrics``: the six official keys, verbatim."""
+def parse_metrics(response: Mapping[str, Any]) -> OfficialScores:
+    """An ``aggregate`` response as ``OfficialScores``: the six official keys, verbatim."""
     scores = response.get("scores")
     if not isinstance(scores, dict) or set(scores) != set(OFFICIAL_METRIC_KEYS):
         raise BridgeError(f"scores must have exactly {list(OFFICIAL_METRIC_KEYS)}, got {scores!r}")
@@ -149,7 +149,7 @@ def parse_metrics(response: Mapping[str, Any]) -> Metrics:
     if not isinstance(detailed, dict):
         raise BridgeError(f"detailed must be an object, got {detailed!r}")
     typed = cast(dict[OfficialMetric, float], {k: float(scores[k]) for k in OFFICIAL_METRIC_KEYS})
-    return Metrics(scores=typed, detailed=detailed)
+    return OfficialScores(scores=typed, detailed=detailed)
 
 
 def read_plans(plans_path: Path) -> list[Plan | None]:
@@ -251,7 +251,7 @@ class RealBridge:
 
     def aggregate(
         self, plans_path: Path, records_path: Path, set_type: str = "validation"
-    ) -> Metrics:
+    ) -> OfficialScores:
         require_validation_split(set_type)
         response = self._request(
             "aggregate",
@@ -336,7 +336,7 @@ class FakeBridge:
 
     def aggregate(
         self, plans_path: Path, records_path: Path, set_type: str = "validation"
-    ) -> Metrics:
+    ) -> OfficialScores:
         require_validation_split(set_type)
         rows = read_bridge_records(records_path)
         plans = read_plans(plans_path)
