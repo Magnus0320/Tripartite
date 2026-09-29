@@ -11,7 +11,9 @@ the prompt cache, so the calibration can be driven through every mode:
 The cache holds the previous prompt (A-020), or every earlier prompt with ``keeps_older=True``.
 A fully cached prompt still evaluates its last token, as llama.cpp does. ``token_offset`` skews
 every count (a tokenizer mismatch), ``load_ns`` sets the ``load_duration`` of a fresh load, and
-``unload_works=False`` makes ``keep_alive: 0`` do nothing. Every request is recorded.
+``unload_works=False`` makes ``keep_alive: 0`` do nothing. ``reply`` and ``reply_done_reason`` set
+what every generation returns (by default one token, cut by ``num_predict: 1``). Every request is
+recorded.
 """
 
 import json
@@ -50,6 +52,8 @@ class FakeOllama:
     generated: int = 0
     """How many prompts were generated from so far."""
     requests: list[tuple[str, str, bytes]] = field(default_factory=list)
+    reply: str = "O"
+    reply_done_reason: str = "length"
 
     @classmethod
     def for_stack(cls, stack: StackConfig, tokenizer: Tokenizer, **kwargs: Any) -> "FakeOllama":
@@ -127,10 +131,10 @@ class FakeOllama:
         self.history = [*self.history, ids] if self.keeps_older else [ids]
         response: dict[str, Any] = {
             "model": self.tag,
-            "response": "O",
+            "response": self.reply,
             "done": True,
-            "done_reason": "length",
-            "eval_count": 1,
+            "done_reason": self.reply_done_reason,
+            "eval_count": len(self.tokenizer.encode_ids(self.reply)),
             "load_duration": load_ns,
             "prompt_eval_duration": 1_000_000 * (len(ids) - cached),
             "eval_duration": 20_000_000,

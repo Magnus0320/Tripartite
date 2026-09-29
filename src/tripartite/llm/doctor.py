@@ -14,8 +14,9 @@ Checks, each reported as one line (``ok``, ``warn``, ``fail`` or ``info``):
 - the desktop app's server has no model loaded (``/api/ps`` only; a warning if it is not
   running). Nothing here ever sends it anything else;
 - the tokenizer files are the ones pulled at the pinned revision;
-- ``reports/token_calibration.json`` is valid (a missing or stale one is a warning: calibration
-  comes after doctor, D4);
+- ``reports/context_report.json`` and ``reports/token_calibration.json`` are valid (a missing or
+  stale one is a warning: both come after doctor, D4). A report counted with fake mode's
+  tokenizer ``fake-bytes@v1`` is stale (FU-25);
 - ``tripartite data verify`` passes.
 
 Any ``fail`` makes doctor exit 1, so any runtime pin that differs from ``configs/stack.yaml``
@@ -52,6 +53,7 @@ from tripartite.config import (
 )
 from tripartite.data import manifest
 from tripartite.llm.calibration import CALIBRATION_REPORT_PATH, calibration_status
+from tripartite.llm.context import CONTEXT_REPORT_PATH, context_report_status
 from tripartite.llm.errors import LLMError, TransportError
 from tripartite.llm.ollama_client import DesktopApp, OllamaClient, RunningModel, llm_mode
 from tripartite.llm.tokenizer import check_tokenizer_dir
@@ -64,7 +66,7 @@ CALIBRATION_LEVELS: Final[dict[str, Level]] = {
     "stale": "warn",
     "invalid": "fail",
 }
-"""Calibration comes after doctor (D4), so a missing or stale report is only a warning."""
+"""Both reports come after doctor (D4), so a missing or stale one is only a warning."""
 GO_MAX_DURATION: Final = "2562047h47m16.854775807s"
 """How Go prints ``math.MaxInt64`` nanoseconds: Ollama's keep-alive for ``-1`` (forever)."""
 HEALTH_TIMEOUT_S: Final = 1.0
@@ -172,6 +174,7 @@ class DoctorDeps:
     client: OllamaClient
     desktop: DesktopApp
     log_path: Path = SERVER_LOG_PATH
+    context_report_path: Path = CONTEXT_REPORT_PATH
     calibration_path: Path = CALIBRATION_REPORT_PATH
     tokenizer_dir: Path | None = None
     lock_path: Path | None = MODEL_LOCK_PATH
@@ -355,6 +358,14 @@ def run_doctor(stack: StackConfig, deps: DoctorDeps) -> list[Check]:
         )
     )
 
+    context = context_report_status(stack, deps.context_report_path)
+    checks.append(
+        Check(
+            "context report",
+            CALIBRATION_LEVELS[context.status],
+            f"{context.status}: {context.detail}",
+        )
+    )
     status = calibration_status(stack, deps.calibration_path)
     checks.append(
         Check(

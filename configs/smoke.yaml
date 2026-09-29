@@ -1,0 +1,41 @@
+# Phase 0 smoke run (ARCHITECTURE.md D1 exit item 3). Owner: model session.
+# 9 queries x seeds 0, 1, 2 = 27 calls, seed-major in query_id order. The query ids are the
+# output of `tripartite eval smoke-ids`, committed verbatim: one per (level x days) cell, each
+# the lowest-index query in its cell. Selecting on level and days is an evaluator-side act done
+# once, offline; the planner never sees those fields.
+# Identical to configs/baseline.yaml except run.name and queries.
+schema_version: 1
+run:
+  name: smoke                       # excluded from config_hash (D7)
+kind: batch
+mode: sole-planning
+context_mode: full
+split: validation
+queries:                            # `uv run tripartite eval smoke-ids`, 2026-09-28
+  - val-001
+  - val-021
+  - val-041
+  - val-061
+  - val-081
+  - val-101
+  - val-121
+  - val-141
+  - val-161
+seeds: [0, 1, 2]
+order: seed-major
+stack: configs/stack.yaml
+prompt:
+  version: sp-direct-v1
+  path: prompts/sole_planning_direct_v1.txt
+  sha256: "62c9858ea22f5b9fbd3cd3ee8d2bd149a96126333e64bddc084b2f5cbdfeac07"
+generation:                         # every option is sent on every request (D4)
+  num_predict: 4096
+  temperature: 0.7
+  top_p: 0.8
+  top_k: 20
+  min_p: 0.0
+  repeat_penalty: 1.0
+  think: false
+  stop: ["<|im_end|>", "<|endoftext|>"]
+  timeout_s: 600                    # D6: a call that takes longer is a transport error
+  transport_retries: 2              # D6: same seed; model outputs are never retried

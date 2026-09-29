@@ -18,6 +18,7 @@ from typing import Final
 
 from tripartite.config import StackConfig
 from tripartite.llm.ollama_client import (
+    DEFAULT_TIMEOUT_S,
     GenerateRequest,
     GenerateResult,
     LLMClient,
@@ -94,8 +95,11 @@ class FakeClient:
         )
 
 
-def make_client(stack: StackConfig, tokenizer: Tokenizer) -> LLMClient:
-    """The fake client when ``TRIPARTITE_LLM=fake``, else the dedicated server's client."""
+def make_client(
+    stack: StackConfig, tokenizer: Tokenizer, *, timeout_s: float = DEFAULT_TIMEOUT_S
+) -> LLMClient:
+    """The fake client when ``TRIPARTITE_LLM=fake``, else the dedicated server's client, whose
+    calls time out after ``timeout_s`` (a transport error, D6)."""
     if llm_mode() == "fake":
         return FakeClient(tokenizer)
-    return OllamaClient(stack.runtime.url)
+    return OllamaClient(stack.runtime.url, timeout_s=timeout_s)

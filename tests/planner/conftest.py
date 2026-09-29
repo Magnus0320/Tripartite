@@ -10,7 +10,7 @@ import pytest
 
 from tests.fixtures.model.synthetic_tokenizer import write_synthetic_tokenizer_dir
 from tests.fixtures.synthetic_data import write_synthetic_data_dir
-from tripartite.config import load_stack
+from tripartite.config import StackConfig, load_stack
 from tripartite.llm.chat_template import ChatTemplate, load_chat_template
 
 
@@ -30,3 +30,8 @@ def chat(tmp_path: Path) -> ChatTemplate:
     stack = load_stack()
     directory = write_synthetic_tokenizer_dir(tmp_path / "tokenizer", stack.tokenizer.revision)
     return load_chat_template(stack, directory)
+
+
+@pytest.fixture
+def stack() -> StackConfig:
+    return load_stack()

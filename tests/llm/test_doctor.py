@@ -9,6 +9,13 @@ import pytest
 from filelock import FileLock
 
 from tests.fixtures.model.fake_ollama import FakeDesktopApp, FakeOllama, server_config_line
+from tests.fixtures.model.reports import (
+    FAKE_REPO,
+    FAKE_REVISION,
+    calibration_report,
+    write_calibration_report,
+    write_context_report,
+)
 from tripartite.config import StackConfig
 from tripartite.data import manifest
 from tripartite.llm.calibration import CalibrationReport, Probe, write_json
@@ -51,6 +58,7 @@ def world(
         + "\n",
         encoding="utf-8",
     )
+    context = write_context_report(tmp_path / "context_report.json", stack)
     calibration = tmp_path / "token_calibration.json"
     write_json(
         CalibrationReport(
@@ -80,6 +88,7 @@ def world(
         "server": FakeOllama.for_stack(stack, tokenizer),
         "desktop": FakeDesktopApp(running=False),
         "log_path": log,
+        "context_report_path": context,
         "calibration_path": calibration,
         "tokenizer_dir": tokenizer_dir,
         "lock_path": tmp_path / "runs" / ".model.lock",
@@ -376,3 +385,33 @@ def test_log_evidence() -> None:
     assert metal_total_gib("") is None
     assert log_context_length("llama_context: n_ctx = 4096\nrunner --ctx-size 32768 --x") == 32768
     assert log_context_length("") is None
+
+
+# --- FU-25: reports counted with the fake tokenizer are stale ---------------------------------
+
+
+def test_doctor_reports_both_reports_as_valid(stack: StackConfig, world: dict[str, Any]) -> None:
+    checks = doctor(stack, world)
+
+    assert checks["context report"].level == "ok"
+    assert checks["context report"].detail.startswith("valid: max prompt_tokens 100")
+    assert checks["token calibration"].level == "ok"
+
+
+def test_doctor_calls_fake_tokenizer_reports_stale(
+    stack: StackConfig, world: dict[str, Any]
+) -> None:
+    write_context_report(
+        world["context_report_path"], stack, tokenizer=FAKE_REPO, revision=FAKE_REVISION
+    )
+    write_calibration_report(
+        world["calibration_path"],
+        calibration_report(stack, tokenizer_repo=FAKE_REPO, tokenizer_revision=FAKE_REVISION),
+    )
+
+    checks = doctor(stack, world)
+
+    for label in ("context report", "token calibration"):
+        assert checks[label].level == "warn"
+        assert checks[label].detail.startswith("stale: written with the fake tokenizer")
+    assert failures(checks) == {}  # stale is a warning: calibration comes after doctor (D4)
