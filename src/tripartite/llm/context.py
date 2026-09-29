@@ -10,12 +10,16 @@ question is raised (YaRN is not approved).
 ``p95`` is the nearest-rank percentile, index ``ceil(0.95 n) - 1`` of the sorted values (D7).
 The report also names the prompt version and sha256 it was measured with, so a later prompt
 change (A-009) cannot reuse it unnoticed.
+
+``context_report_status`` says whether a report still describes the pinned stack. A report counted
+with fake mode's tokenizer (``fake-bytes@v1``) is always stale, whatever the mode (FU-25).
 """
 
 import json
 import math
 import statistics
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
@@ -23,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, NonNegativeInt, ValidationError
 
 from tripartite.config import REPO_ROOT, StackConfig
 from tripartite.data.planner_inputs import PlannerInput
+from tripartite.llm.calibration import Status, fake_tokenizer_detail
 from tripartite.llm.tokenizer import Tokenizer
 
 CONTEXT_REPORT_PATH: Final = REPO_ROOT / "reports" / "context_report.json"
@@ -62,7 +67,8 @@ class ContextReport(_Frozen):
     """``num_ctx - num_predict - 256 - max(prompt_tokens)``; negative when it does not fit."""
 
 
-def nearest_rank_p95(values: Sequence[int]) -> int:
+def nearest_rank_p95[N: (int, float)](values: Sequence[N]) -> N:
+    """The nearest-rank 95th percentile: index ``ceil(0.95 n) - 1`` of the sorted values."""
     ordered = sorted(values)
     return ordered[math.ceil(0.95 * len(ordered)) - 1]
 
@@ -132,3 +138,44 @@ def load_context_report(path: Path = CONTEXT_REPORT_PATH) -> ContextReport | Non
 
 def report_json(report: ContextReport) -> str:
     return json.dumps(report.model_dump(mode="json"), indent=2) + "\n"
+
+
+@dataclass(frozen=True, slots=True)
+class ContextStatus:
+    status: Status
+    detail: str
+    report: ContextReport | None = None
+
+
+def context_report_status(stack: StackConfig, path: Path = CONTEXT_REPORT_PATH) -> ContextStatus:
+    """``missing``; ``invalid`` (unreadable, or the gate failed); ``stale`` (counted with the fake
+    tokenizer, or with other pins than ``stack``); or ``valid``."""
+    try:
+        report = load_context_report(path)
+    except ValueError as exc:
+        return ContextStatus("invalid", str(exc))
+    if report is None:
+        return ContextStatus("missing", "run `make measure-context`")
+    if fake := fake_tokenizer_detail(report.tokenizer, report.revision):
+        return ContextStatus("stale", fake, report)
+    changed = [
+        f"{name} {have!r} != {want!r}"
+        for name, have, want in (
+            ("tokenizer", report.tokenizer, stack.tokenizer.repo),
+            ("revision", report.revision, stack.tokenizer.revision),
+            ("num_ctx", report.num_ctx, stack.model.num_ctx),
+        )
+        if have != want
+    ]
+    if changed:
+        return ContextStatus(
+            "stale", "; ".join(changed) + "; re-run `make measure-context`", report
+        )
+    if not report.fits:
+        return ContextStatus("invalid", "the longest prompt does not fit (fits: false)", report)
+    return ContextStatus(
+        "valid",
+        f"max prompt_tokens {report.summary['prompt_tokens'].max}, headroom "
+        f"{report.headroom_tokens}, {report.prompt_version}",
+        report,
+    )

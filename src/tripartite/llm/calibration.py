@@ -18,7 +18,8 @@ post-check uses that mode:
 
 ``reports/token_calibration.json`` is valid only while its Ollama version, model digest,
 tokenizer revision and ``num_ctx`` equal ``configs/stack.yaml``. Real-model runs refuse to start
-without a valid one (``require_valid_calibration``); the fake client needs none.
+without a valid one (``require_valid_calibration``); the fake client needs none. A report whose
+tokenizer is fake mode's ``fake-bytes@v1`` is always stale, whatever the mode (FU-25).
 """
 
 import json
@@ -41,6 +42,7 @@ from tripartite.llm.errors import (
     TokenizerMismatchError,
     TruncationError,
 )
+from tripartite.llm.fake_client import FAKE_TOKENIZER_ID
 from tripartite.llm.ollama_client import GenerateOptions, GenerateRequest, OllamaClient
 from tripartite.llm.tokenizer import lcp
 
@@ -168,6 +170,16 @@ def write_json(data: BaseModel, path: Path) -> None:
 Status = Literal["missing", "valid", "stale", "invalid"]
 
 
+def fake_tokenizer_detail(tokenizer_repo: str, tokenizer_revision: str) -> str | None:
+    """Why a report counted with fake mode's tokenizer is stale, or None if it was not (FU-25)."""
+    if f"{tokenizer_repo}@{tokenizer_revision}" != FAKE_TOKENIZER_ID:
+        return None
+    return (
+        f"written with the fake tokenizer {FAKE_TOKENIZER_ID} (TRIPARTITE_LLM=fake), so its "
+        "counts are not Qwen counts; re-run `make measure-context` against the real stack"
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class CalibrationStatus:
     status: Status
@@ -178,13 +190,16 @@ class CalibrationStatus:
 def calibration_status(
     stack: StackConfig, path: Path = CALIBRATION_REPORT_PATH
 ) -> CalibrationStatus:
-    """``missing``, ``valid``, ``stale`` (pins changed since), or ``invalid`` (unreadable)."""
+    """``missing``, ``valid``, ``stale`` (pins changed since, or written with the fake tokenizer),
+    or ``invalid`` (unreadable)."""
     try:
         report = CalibrationReport.model_validate_json(path.read_bytes())
     except FileNotFoundError:
         return CalibrationStatus("missing", "run `make measure-context` with the server up")
     except ValidationError as exc:
         return CalibrationStatus("invalid", f"{path.name} does not validate: {exc}")
+    if fake := fake_tokenizer_detail(report.tokenizer_repo, report.tokenizer_revision):
+        return CalibrationStatus("stale", fake, report)
     changed = [
         f"{name} {have!r} != {want!r}"
         for name, have, want in (

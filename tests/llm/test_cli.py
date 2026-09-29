@@ -31,8 +31,9 @@ def test_serve_env_refuses_an_unknown_format() -> None:
     assert runner.invoke(cli.app, ["serve-env", "--format", "json"]).exit_code != 0
 
 
-def test_calibrate_refuses_the_fake_client() -> None:
-    result = runner.invoke(cli.app, ["calibrate"])  # TRIPARTITE_LLM=fake, as in CI
+def test_calibrate_refuses_the_fake_client(tmp_path: Path) -> None:
+    # TRIPARTITE_LLM=fake, as in CI; the default --out is refused first (FU-25, test_fu25.py)
+    result = runner.invoke(cli.app, ["calibrate", "--out", str(tmp_path / "calibration.json")])
 
     assert result.exit_code == 1
     assert "TRIPARTITE_LLM=fake is set; calibration needs the real server" in result.output

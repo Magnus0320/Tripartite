@@ -11,13 +11,18 @@
   and its report names ``fake-bytes@v1``, which ``calibrate`` refuses.
 - ``calibrate``: step 2; needs the dedicated server, so it refuses fake mode.
 
+In fake mode, neither ``measure-context`` nor ``calibrate`` writes to a committed report path
+(``reports/context_report.json``, ``reports/token_calibration.json``): an ``--out`` that resolves to
+either exits 1 before anything else happens (FU-25). A report counted with the fake tokenizer is
+stale for ``doctor``, ``calibrate`` and ``run start`` in every mode.
+
 Every command exits 1 on failure and says why.
 """
 
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, NoReturn
+from typing import Annotated, Final, NoReturn
 
 import typer
 from filelock import FileLock, Timeout
@@ -26,6 +31,7 @@ from huggingface_hub import hf_hub_download
 from tripartite.config import (
     BASELINE_CONFIG_PATH,
     MODEL_LOCK_PATH,
+    REPO_ROOT,
     ConfigError,
     StackConfig,
     load_run_config,
@@ -40,6 +46,7 @@ from tripartite.llm.calibration import (
     COLD_PROBE_IDS,
     CalibrationOutcome,
     ProbePrompt,
+    fake_tokenizer_detail,
     preflight,
     run_calibration,
     write_json,
@@ -236,6 +243,19 @@ def doctor() -> None:
 # --- measure-context and calibrate ------------------------------------------------------------
 
 ConfigOption = Annotated[Path, typer.Option("--config", help="The run config (prompt, options).")]
+COMMITTED_REPORTS: Final = (CONTEXT_REPORT_PATH, CALIBRATION_REPORT_PATH)
+
+
+def _refuse_committed_report_in_fake_mode(command: str, out: Path) -> None:
+    """FU-25: in fake mode, never write where a committed report lives, however ``--out`` spells
+    it (a relative path, ``..``, or a symlink)."""
+    if llm_mode() != "fake":
+        return
+    target = out.resolve()
+    for committed in COMMITTED_REPORTS:
+        if target == committed.resolve():
+            shown = committed.relative_to(REPO_ROOT).as_posix()
+            _fail(command, [f"refusing to overwrite {shown} in fake mode; pass --out"])
 
 
 @app.command("measure-context")
@@ -245,6 +265,7 @@ def measure_context(
 ) -> None:
     """Step 1 of `make measure-context`: count every prompt with the pinned tokenizer and fail
     unless max(prompt_tokens) + num_predict + 256 <= num_ctx. No server needed."""
+    _refuse_committed_report_in_fake_mode("measure-context", out)
     stack = _stack("measure-context")
     try:
         run = load_run_config(config)
@@ -310,19 +331,19 @@ def calibrate(
     """Step 2 of `make measure-context`: cold and warm probes against the dedicated server
     classify how it reports prompt tokens (D4 §Token calibration)."""
     command = "calibrate"
+    _refuse_committed_report_in_fake_mode(command, out)
     if llm_mode() == "fake":
         _fail(command, ["TRIPARTITE_LLM=fake is set; calibration needs the real server"])
     stack = _stack(command)
     try:
         run = load_run_config(config)
         measured = load_context_report(context_report)
-        tokenizer = tokenizer_from_env(stack)
-        renderer = PromptRenderer.from_config(run, stack)
-        inputs = {inp.query_id: inp for inp in load_planner_inputs()}
-    except (ConfigError, LLMError, PromptError, DataError, OSError, ValueError) as exc:
+    except (ConfigError, OSError, ValueError) as exc:
         _fail(command, [f"{type(exc).__name__}: {exc}"])
     if measured is None:
         _fail(command, [f"{context_report} is missing; run `tripartite model measure-context`"])
+    if fake := fake_tokenizer_detail(measured.tokenizer, measured.revision):
+        _fail(command, [f"{context_report} is stale: {fake}"])
     stale = [
         f"{name} {have!r} != {want!r}"
         for name, have, want in (
@@ -342,6 +363,12 @@ def calibrate(
                 else f"{context_report} is stale ({'; '.join(stale)}); re-run measure-context"
             ],
         )
+    try:
+        tokenizer = tokenizer_from_env(stack)
+        renderer = PromptRenderer.from_config(run, stack)
+        inputs = {inp.query_id: inp for inp in load_planner_inputs()}
+    except (ConfigError, LLMError, PromptError, DataError, OSError, ValueError) as exc:
+        _fail(command, [f"{type(exc).__name__}: {exc}"])
 
     prompts = []
     for qid in COLD_PROBE_IDS:

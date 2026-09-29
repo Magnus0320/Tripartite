@@ -212,7 +212,14 @@ def test_measure_context_fails_when_it_does_not_fit(run_config: Path, tmp_path: 
 
 def test_measure_context_fails_cleanly_without_a_config(tmp_path: Path) -> None:
     result = CliRunner().invoke(
-        cli.app, ["measure-context", "--config", str(tmp_path / "none.yaml")]
+        cli.app,
+        [
+            "measure-context",
+            "--config",
+            str(tmp_path / "none.yaml"),
+            "--out",
+            str(tmp_path / "context_report.json"),
+        ],
     )
 
     assert result.exit_code == 1

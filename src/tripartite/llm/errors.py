@@ -21,6 +21,11 @@ class DigestMismatchError(LLMError):
     """The runtime's model digest differs from ``configs/stack.yaml``. Never update the pin."""
 
 
+class StackMismatchError(LLMError):
+    """The running server's version, loaded model or context length differs from
+    ``configs/stack.yaml``, so the calibration does not describe it (D4)."""
+
+
 class TokenizerError(LLMError):
     """The tokenizer files are missing, or were not downloaded at the pinned revision."""
 
