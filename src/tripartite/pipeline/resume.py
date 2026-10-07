@@ -5,8 +5,10 @@ still marked ``running`` because its process died (the model lock proves no proc
 it now). A ``succeeded`` run is final and is never touched; ``queued`` belongs to the API.
 
 Resume re-uses the run's own stored config. Re-hashing it must give the run's ``config_hash``, and
-today's stack pins, prompt, parser and calibrated post-check mode must equal the run's, because
-the stack is not part of ``config_hash`` (``run.open_run`` checks them under the lock). Then:
+today's stack pins, ``runtime.env`` (FU-26), prompt, parser and calibrated post-check mode must
+equal the run's, because the stack is not part of ``config_hash`` (``run.open_run`` checks them
+under the lock). A full run (batch, all 180 queries) is also resumed only at the commit that
+started it, and only from a clean tree unless ``--allow-dirty`` is passed (FU-29). Then:
 
 1. ``repair_tail`` cuts a half-written last line off ``events.jsonl`` (its bytes go to
    ``events.corrupt-<ts>.txt``), and the count lands in the manifest as ``repaired_tail_bytes``;
@@ -38,7 +40,7 @@ __all__ = ["RESUMABLE", "ResumeError", "open_resume", "resume_run"]
 RESUMABLE: Final = frozenset({"failed", "interrupted", "running"})
 
 
-def open_resume(run_id: str, deps: RunDeps) -> RunSession:
+def open_resume(run_id: str, deps: RunDeps, *, allow_dirty: bool = False) -> RunSession:
     """Check that ``run_id`` can be resumed and reopen it (everything before the warm-up)."""
     try:
         validate_run_id(run_id)
@@ -64,10 +66,12 @@ def open_resume(run_id: str, deps: RunDeps) -> RunSession:
         config = RunConfig.model_validate(stored)
     except ValidationError as exc:
         raise ResumeError(f"run {run_id}: its stored config does not validate: {exc}") from None
-    return open_run(config, deps, resume=ResumeState(run_dir, manifest))
+    return open_run(config, deps, resume=ResumeState(run_dir, manifest), allow_dirty=allow_dirty)
 
 
-def resume_run(run_id: str, deps: RunDeps | None = None) -> RunOutcome:
+def resume_run(
+    run_id: str, deps: RunDeps | None = None, *, allow_dirty: bool = False
+) -> RunOutcome:
     """Resume ``run_id`` and run it to its end."""
     deps = deps or RunDeps()
-    return execute(open_resume(run_id, deps))
+    return execute(open_resume(run_id, deps, allow_dirty=allow_dirty))

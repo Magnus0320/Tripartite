@@ -211,6 +211,82 @@ def test_a_server_started_with_another_environment_fails(
     assert message in failed["server env (runs/ollama-server.log)"]
 
 
+CACHE_LABEL = "runner prompt cache (runs/ollama-server.log)"
+CACHE_UPDATE_LINES = (
+    "srv  update_slots: updating prompt cache\nsrv  prompt cache update took 2656.95 ms\n"
+)
+
+
+def test_the_server_config_line_never_shows_the_runner_variable(
+    stack: StackConfig, world: dict[str, Any]
+) -> None:
+    """Ollama logs only its own variables, so ``LLAMA_ARG_CACHE_RAM`` is not looked for there."""
+    assert "LLAMA_ARG_CACHE_RAM" not in world["log_path"].read_text(encoding="utf-8")
+
+    checks = doctor(stack, world)
+
+    env = checks["server env (runs/ollama-server.log)"]
+    assert env.level == "ok"
+    assert env.detail.startswith(
+        "7 runtime.env values match; LLAMA_ARG_CACHE_RAM is for the runner"
+    )
+    assert checks[CACHE_LABEL].level == "ok"
+
+
+def test_an_active_runner_prompt_cache_fails(stack: StackConfig, world: dict[str, Any]) -> None:
+    """FU-26: with ``LLAMA_ARG_CACHE_RAM=0`` the runner must never save a prompt."""
+    with world["log_path"].open("a", encoding="utf-8") as f:
+        f.write(CACHE_UPDATE_LINES)
+
+    failed = failures(doctor(stack, world))
+
+    assert list(failed) == [CACHE_LABEL]
+    assert "2 prompt-cache update line(s)" in failed[CACHE_LABEL]
+    assert "updating prompt cache" in failed[CACHE_LABEL]
+
+
+DISABLED_LINE = "srv    load_model: prompt cache is disabled - use `--cache-ram N` to enable it"
+ENABLED_LINE = "srv    load_model: prompt cache is enabled, size limit: 8192 MiB"
+
+
+def test_a_runner_that_says_its_cache_is_disabled_passes(
+    stack: StackConfig, world: dict[str, Any]
+) -> None:
+    """The line Ollama 0.33.2's runner logs under ``LLAMA_ARG_CACHE_RAM=0``; an earlier runner
+    of the same server that had the cache on does not count once a later one has it off."""
+    with world["log_path"].open("a", encoding="utf-8") as f:
+        f.write(ENABLED_LINE + "\n" + DISABLED_LINE + "\n")
+
+    check = doctor(stack, world)[CACHE_LABEL]
+
+    assert check.level == "ok"
+    assert check.detail.endswith("the runner says: " + DISABLED_LINE)
+
+
+def test_a_runner_that_says_its_cache_is_enabled_fails(
+    stack: StackConfig, world: dict[str, Any]
+) -> None:
+    with world["log_path"].open("a", encoding="utf-8") as f:
+        f.write(ENABLED_LINE + "\n")
+
+    failed = failures(doctor(stack, world))
+
+    assert list(failed) == [CACHE_LABEL]
+    assert "prompt cache is enabled, size limit: 8192 MiB" in failed[CACHE_LABEL]
+
+
+def test_prompt_cache_lines_of_an_earlier_server_start_do_not_count(
+    stack: StackConfig, world: dict[str, Any]
+) -> None:
+    log = world["log_path"]
+    log.write_text(CACHE_UPDATE_LINES + log.read_text(encoding="utf-8"), encoding="utf-8")
+
+    checks = doctor(stack, world)
+
+    assert failures(checks) == {}
+    assert checks[CACHE_LABEL].level == "ok"
+
+
 def test_a_server_that_does_not_answer(stack: StackConfig, world: dict[str, Any]) -> None:
     world["server"].handler = world["desktop"].handler  # connection refused
 

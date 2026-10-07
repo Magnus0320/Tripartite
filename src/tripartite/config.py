@@ -63,9 +63,12 @@ D4_SERVER_ENV: Final[Mapping[str, str]] = {
     "OLLAMA_KEEP_ALIVE": "-1",
     "OLLAMA_FLASH_ATTENTION": "1",
     "OLLAMA_KV_CACHE_TYPE": "f16",
+    "LLAMA_ARG_CACHE_RAM": "0",
 }
 """The fixed part of the D4 server environment. ``OLLAMA_HOST`` and ``OLLAMA_CONTEXT_LENGTH``
-are derived from ``runtime.url`` and ``model.num_ctx``."""
+are derived from ``runtime.url`` and ``model.num_ctx``. ``LLAMA_ARG_CACHE_RAM`` is not Ollama's:
+Ollama passes its environment on to ``llama-server``, where ``0`` disables the runner's host-RAM
+prompt cache (D4 §Runner prompt cache, FU-26)."""
 SERVER_ENV_KEYS: Final = frozenset({"OLLAMA_HOST", "OLLAMA_CONTEXT_LENGTH", *D4_SERVER_ENV})
 
 Sha256Hex = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]

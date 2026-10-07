@@ -5,13 +5,14 @@ so the SIGTERM handler ``start`` installs never outlives the test.
 """
 
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
-from tests.fixtures.model.run_deps import fake_deps
+from tests.fixtures.model.run_deps import fake_deps, fixed_env, write_config
 from tripartite import cli as root_cli
 from tripartite.config import SMOKE_CONFIG_PATH
 from tripartite.llm.fake_client import FakeClient, FakeTokenizer
@@ -163,3 +164,37 @@ def test_rescore_of_an_unknown_run_exits_1(run_id: str, deps: Callable[..., RunD
 
     assert result.exit_code == 1
     assert result.output.splitlines()[-1] == "run rescore: FAILED"
+
+
+def test_fake_mode_on_the_real_data_stops_start(
+    deps: Callable[..., RunDeps], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FU-27: the message names the variable to set."""
+    deps()
+    monkeypatch.delenv("TRIPARTITE_DATA_DIR")
+
+    result = runner.invoke(cli.app, ["start", "--config", str(SMOKE_CONFIG_PATH)])
+
+    assert result.exit_code == 1
+    assert "FakeModeRealDataError" in result.output
+    assert "TRIPARTITE_DATA_DIR" in result.output
+
+
+def test_a_full_run_needs_allow_dirty_on_a_dirty_tree(
+    deps: Callable[..., RunDeps], tmp_path: Path
+) -> None:
+    """FU-29: refused without the flag; with it the run starts and records it."""
+    config = write_config(tmp_path / "full.yaml", queries="all", seeds=[0])
+    deps(env_probe=partial(fixed_env, git_dirty=True))
+
+    refused = runner.invoke(cli.app, ["start", "--config", str(config)])
+
+    assert refused.exit_code == 1
+    assert "DirtyTreeError" in refused.output
+    assert "--allow-dirty" in refused.output
+
+    allowed = runner.invoke(cli.app, ["start", "--config", str(config), "--allow-dirty"])
+
+    assert allowed.exit_code == 0, allowed.output
+    manifest = (tmp_path / "runs" / run_id_of(allowed.output) / "manifest.json").read_text()
+    assert '"allow_dirty": true' in manifest

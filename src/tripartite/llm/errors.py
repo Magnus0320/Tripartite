@@ -49,3 +49,9 @@ class CalibrationError(LLMError):
 
 class CalibrationMissingError(LLMError):
     """``reports/token_calibration.json`` is missing, stale or invalid (D4 §Before calibration)."""
+
+
+class FakeModeRealDataError(LLMError):
+    """Fake mode was asked to open a run on the real data. Fake mode is synthetic-data-only:
+    ``TRIPARTITE_DATA_DIR`` must point at a data root other than ``<repo>/data`` (D4 §Fake mode
+    and data, FU-27)."""

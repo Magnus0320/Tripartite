@@ -1,12 +1,13 @@
-"""``tripartite run start --resume`` (ARCHITECTURE.md D7 §Resume, Q10; A-023)."""
+"""``tripartite run start --resume`` (ARCHITECTURE.md D7 §Resume, Q10; A-023; FU-26)."""
 
 import json
+from functools import partial
 from pathlib import Path
 
 import pytest
 from filelock import FileLock
 
-from tests.fixtures.model.run_deps import fake_deps, scripted_deps
+from tests.fixtures.model.run_deps import fake_deps, fixed_env, scripted_deps
 from tripartite.config import SMOKE_CONFIG_PATH, StackConfig
 from tripartite.evaluation.bridge_client import EvaluationError, FakeBridge, Plan
 from tripartite.evaluation.constraints import PerPlanResult
@@ -18,6 +19,7 @@ from tripartite.pipeline.resume import ResumeError, resume_run
 from tripartite.pipeline.run import RunOutcome, start_run
 from tripartite.runlog.reader import RunLogError, read_events
 from tripartite.runlog.schema import (
+    EnvInfo,
     LlmCallEvent,
     MetricsSeed,
     QueryResultEvent,
@@ -178,6 +180,57 @@ def test_a_different_stack_is_refused(
 
     with pytest.raises(ResumeError, match="the stack differs"):
         resume_run(first.run_id, resume_deps(tmp_path, first))
+
+
+def recorded_env(change: str, stack: StackConfig) -> EnvInfo:
+    """``fixed_env`` with an ``ollama_env`` that differs from today's ``runtime.env``."""
+    env = dict(stack.runtime.env)
+    if change == "missing":  # the real case: a run started before FU-26
+        del env["LLAMA_ARG_CACHE_RAM"]
+    elif change == "changed":
+        env["LLAMA_ARG_CACHE_RAM"] = "8192"
+    else:
+        env["OLLAMA_DEBUG"] = "1"
+    return fixed_env(stack).model_copy(update={"ollama_env": env})
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ("missing", r"the run lacks \['LLAMA_ARG_CACHE_RAM'\]"),
+        ("changed", "LLAMA_ARG_CACHE_RAM='8192', now '0'"),
+        ("extra", r"the run has \['OLLAMA_DEBUG'\], now absent"),
+    ],
+)
+def test_a_different_runtime_env_is_refused(tmp_path: Path, change: str, message: str) -> None:
+    """FU-26: a run started under another ``runtime.env`` is never finished under today's."""
+    first = start_run(
+        SMOKE_CONFIG_PATH,
+        fake_deps(
+            tmp_path / "a", client=InterruptingClient(4), env_probe=partial(recorded_env, change)
+        ),
+    )
+    assert first.status == "interrupted"
+    files = [first.run_dir / "events.jsonl", first.run_dir / "manifest.json"]
+    before = [path.read_bytes() for path in files]
+
+    with pytest.raises(ResumeError, match=r"runtime\.env differs") as caught:
+        resume_run(first.run_id, resume_deps(tmp_path, first))  # type: ignore[arg-type]
+
+    assert caught.match(message)
+    assert [path.read_bytes() for path in files] == before
+
+
+def test_the_same_runtime_env_resumes(tmp_path: Path, stack: StackConfig) -> None:
+    first = interrupted(tmp_path)
+
+    outcome = resume_run(first.run_id, resume_deps(tmp_path, first))  # type: ignore[arg-type]
+
+    assert outcome.status == "succeeded", outcome.error
+    starts = [
+        e for e in read_events(first.run_dir / "events.jsonl") if isinstance(e, RunStartEvent)
+    ]
+    assert [s.env.ollama_env for s in starts] == [dict(stack.runtime.env)] * 2
 
 
 def test_a_run_in_progress_is_not_touched(tmp_path: Path) -> None:

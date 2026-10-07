@@ -75,16 +75,20 @@ def write_config(
     return path
 
 
-def fixed_env(_stack: StackConfig) -> EnvInfo:
+def fixed_env(
+    stack: StackConfig, *, git_dirty: bool = False, git_commit: str = "0" * 40
+) -> EnvInfo:
+    """A fixed machine. ``ollama_env`` is the stack's own ``runtime.env``, as ``collect_env``
+    records it, so a resume compares like with like (FU-26)."""
     return EnvInfo(
         python="3.12.13",
         uv_lock_sha256=SHA,
         evalenv_lock_sha256=SHA,
-        git_commit="0" * 40,
-        git_dirty=False,
+        git_commit=git_commit,
+        git_dirty=git_dirty,
         macos="26.0",
         chip="Apple M4 Pro",
-        ollama_env={"OLLAMA_NUM_PARALLEL": "1"},
+        ollama_env=dict(stack.runtime.env),
         iogpu_wired_limit_mb=0,
         gpu_recommended_max_working_set_bytes=None,
     )

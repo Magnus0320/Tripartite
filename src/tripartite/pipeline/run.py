@@ -5,7 +5,10 @@
 1. **Before anything is created or called.** With the real model, the token calibration must be
    valid (``CalibrationMissingError`` otherwise, D4 §Before calibration has run); fake mode needs
    none and checks in mode ``total``. The prompt file must match its recorded sha256 (D6), and
-   ``runs/.model.lock`` is taken without waiting (D4 §Concurrency).
+   ``runs/.model.lock`` is taken without waiting (D4 §Concurrency). Fake mode refuses the real
+   data: ``TRIPARTITE_DATA_DIR`` must name a data root other than ``<repo>/data``
+   (``FakeModeRealDataError``, FU-27). A full run (batch, all 180 queries) refuses a dirty
+   working tree unless ``--allow-dirty`` was passed (``DirtyTreeError``, FU-29).
 2. **The run directory** ``runs/<run_id>/`` (D7): ``manifest.json`` (status ``running``),
    ``events.jsonl`` with its ``run_start``, and ``blobs/``.
 3. **The warm-up** (D4): one ``num_predict: 1`` call, logged as ``role: "warmup"``. With the real
@@ -31,6 +34,7 @@ compares every re-written file with the original byte for byte (D1 Phase 0 exit 
 """
 
 import json
+import os
 import platform
 import subprocess
 import time
@@ -55,10 +59,13 @@ from tripartite.config import (
     load_stack,
 )
 from tripartite.data.manifest import (
+    DATA_DIR,
+    DATA_DIR_ENV,
     DATABASE_ZIP,
     HF_FILES,
     HF_REVISION,
     N_VALIDATION,
+    data_dir,
     raw_dir,
     sha256_file,
 )
@@ -73,7 +80,12 @@ from tripartite.llm.calibration import (
 )
 from tripartite.llm.chat_template import ChatTemplate, template_from_env
 from tripartite.llm.doctor import iogpu_wired_limit_mb, recommended_working_set_mb
-from tripartite.llm.errors import DigestMismatchError, StackMismatchError, TruncationError
+from tripartite.llm.errors import (
+    DigestMismatchError,
+    FakeModeRealDataError,
+    StackMismatchError,
+    TruncationError,
+)
 from tripartite.llm.fake_client import make_client
 from tripartite.llm.ollama_client import GENERATE_ENDPOINT, LLMClient, OllamaClient, llm_mode
 from tripartite.llm.tokenizer import Tokenizer, tokenizer_from_env
@@ -138,6 +150,11 @@ Outcome = Literal["succeeded", "failed", "interrupted"]
 
 class ResumeError(RuntimeError):
     """The run cannot be resumed: its status, config or stack does not allow it (D7)."""
+
+
+class DirtyTreeError(RuntimeError):
+    """A full run (batch, all 180 queries) was asked for from a working tree with uncommitted
+    changes, without ``--allow-dirty`` (D9 §M5 operations, FU-29)."""
 
 
 class RescoreError(RuntimeError):
@@ -292,8 +309,11 @@ def run_start_payload(
     query_ids: list[str],
     env: EnvInfo,
     resumed_from: str | None,
+    allow_dirty: bool = False,
 ) -> RunStart:
-    """``run_start`` (D7). ``resolved`` is the config as hashed (``RunConfig`` as JSON)."""
+    """``run_start`` (D7). ``resolved`` is the config as hashed (``RunConfig`` as JSON).
+    ``allow_dirty: true`` is written only when ``--allow-dirty`` was passed (FU-29)."""
+    extra: dict[str, Any] = {"allow_dirty": True} if allow_dirty else {}
     return RunStart(
         kind=config.kind,
         mode=config.mode,
@@ -314,7 +334,40 @@ def run_start_payload(
         env=env,
         agents=[AgentInfo(agent_id=AGENT_ID, role=PLANNER_ROLE, model_tag=stack.model.tag)],
         resumed_from=resumed_from,
+        **extra,
     )
+
+
+def is_full_run(config: RunConfig, query_ids: Sequence[str]) -> bool:
+    """A batch run over all 180 validation queries: the kind whose scores are results."""
+    return config.kind == "batch" and len(query_ids) == N_VALIDATION
+
+
+def require_clean_tree(
+    config: RunConfig, query_ids: Sequence[str], env: EnvInfo, allow_dirty: bool
+) -> None:
+    """FU-29: a full run never starts or resumes from a dirty tree unless told to. Subset runs
+    (smoke) are unaffected."""
+    if is_full_run(config, query_ids) and env.git_dirty and not allow_dirty:
+        raise DirtyTreeError(
+            f"refusing a full run ({N_VALIDATION} queries) from a working tree with uncommitted "
+            "changes (git_dirty); commit them, or pass --allow-dirty (D9 §M5 operations)"
+        )
+
+
+def require_synthetic_data_root() -> None:
+    """FU-27: fake mode is synthetic-data-only (D4 §Fake mode and data). Resolved paths are
+    compared, so a symlink to ``<repo>/data`` is refused too."""
+    if os.environ.get(DATA_DIR_ENV) is None:
+        raise FakeModeRealDataError(
+            f"fake mode (TRIPARTITE_LLM=fake) never runs on the real data: set {DATA_DIR_ENV} "
+            f"to a synthetic data root (it is unset, which means {DATA_DIR})"
+        )
+    if data_dir().resolve() == DATA_DIR.resolve():
+        raise FakeModeRealDataError(
+            f"fake mode (TRIPARTITE_LLM=fake) never runs on the real data: {DATA_DIR_ENV} "
+            f"points at {DATA_DIR}; set it to a synthetic data root"
+        )
 
 
 # --- the manifest --------------------------------------------------------------------------------
@@ -398,10 +451,18 @@ def _log_size(path: Path) -> int:
         return 0
 
 
-def open_run(config: RunConfig, deps: RunDeps, *, resume: ResumeState | None = None) -> RunSession:
+def open_run(
+    config: RunConfig,
+    deps: RunDeps,
+    *,
+    resume: ResumeState | None = None,
+    allow_dirty: bool = False,
+) -> RunSession:
     """Everything before the warm-up: checks, the model lock, and the run directory with its
     manifest and ``run_start`` (a new ``run_start`` with ``resumed_from`` when resuming)."""
     mode = llm_mode()
+    if mode == "fake":
+        require_synthetic_data_root()
     stack = load_stack(config.stack_path)
     post_check_mode: Mode = FAKE_POST_CHECK_MODE
     if mode == "ollama":
@@ -421,11 +482,19 @@ def open_run(config: RunConfig, deps: RunDeps, *, resume: ResumeState | None = N
     lock = acquire_model_lock(deps.lock_path)
     try:
         if resume is None:
-            created = _create(config, deps, stack, tokenizer, mode, query_ids)
+            created = _create(config, deps, stack, tokenizer, mode, query_ids, allow_dirty)
             run_dir, manifest, writer, done = created
         else:
             run_dir, manifest, writer, done = _reopen(
-                resume, config, deps, stack, tokenizer, mode, query_ids, post_check_mode
+                resume,
+                config,
+                deps,
+                stack,
+                tokenizer,
+                mode,
+                query_ids,
+                post_check_mode,
+                allow_dirty,
             )
         client = deps.client or make_client(stack, tokenizer, timeout_s=config.generation.timeout_s)
         bridge = deps.bridge or bridge_from_env()
@@ -473,7 +542,10 @@ def _create(
     tokenizer: Tokenizer,
     mode: str,
     query_ids: list[str],
+    allow_dirty: bool,
 ) -> tuple[Path, RunManifest, RunLogWriter, set[tuple[str, int]]]:
+    env = deps.env_probe(stack)
+    require_clean_tree(config, query_ids, env, allow_dirty)  # before anything is created
     resolved = config.model_dump(mode="json")
     now = deps.clock()
     run_id = new_run_id(config.kind, config_hash(resolved), now=now)
@@ -484,8 +556,9 @@ def _create(
         tokenizer=tokenizer,
         mode=mode,
         query_ids=query_ids,
-        env=deps.env_probe(stack),
+        env=env,
         resumed_from=None,
+        allow_dirty=allow_dirty,
     )
     run_dir = deps.runs_dir / run_id
     (run_dir / BLOBS_DIR).mkdir(parents=True)
@@ -509,6 +582,28 @@ def _create(
     return run_dir, manifest, writer, set()
 
 
+def _runtime_env_difference(recorded: dict[str, str], current: dict[str, str]) -> str | None:
+    """Why a run recorded under ``recorded`` cannot continue under today's ``runtime.env``
+    (D4 §Runner prompt cache, FU-26), or None if the two are equal."""
+    if recorded == current:
+        return None
+    parts = []
+    if missing := sorted(set(current) - set(recorded)):
+        parts.append(f"the run lacks {missing}")
+    if extra := sorted(set(recorded) - set(current)):
+        parts.append(f"the run has {extra}, now absent")
+    parts += [
+        f"{key}={recorded[key]!r}, now {current[key]!r}"
+        for key in sorted(set(recorded) & set(current))
+        if recorded[key] != current[key]
+    ]
+    return "runtime.env differs from the run's (run_start.env.ollama_env): " + "; ".join(parts)
+
+
+def _allowed_dirty(start: RunStart) -> bool:
+    return getattr(start, "allow_dirty", False) is True
+
+
 def _reopen(
     resume: ResumeState,
     config: RunConfig,
@@ -518,12 +613,20 @@ def _reopen(
     mode: str,
     query_ids: list[str],
     post_check_mode: Mode,
+    allow_dirty: bool,
 ) -> tuple[Path, RunManifest, RunLogWriter, set[tuple[str, int]]]:
     """Resume (D7): repair a partial last line, check the log against today's stack, and append
-    a new ``run_start`` with ``resumed_from``. Runs under the model lock."""
+    a new ``run_start`` with ``resumed_from``. Runs under the model lock.
+
+    A full run also resumes only from the commit that started it, whatever ``--allow-dirty``
+    says, and only from a clean tree unless ``--allow-dirty`` is passed (FU-29). Once any session
+    of a run used the flag, every later ``run_start`` keeps ``allow_dirty: true``, because the
+    manifest holds only the latest one."""
     run_dir, previous = resume.run_dir, resume.manifest
     run_id = run_dir.name
     events = run_dir / EVENTS_FILE
+    env = deps.env_probe(stack)
+    require_clean_tree(config, query_ids, env, allow_dirty)  # before the log is touched
     repaired = repair_tail(events)
     view = load_run_log(events)
     first = view.run_start
@@ -541,6 +644,13 @@ def _reopen(
         problems.append("the queries or seeds differ from the run's")
     if view.post_check_modes and view.post_check_modes != {post_check_mode}:
         problems.append(f"post-check mode {sorted(view.post_check_modes)}, now {post_check_mode}")
+    if env_problem := _runtime_env_difference(first.env.ollama_env, dict(stack.runtime.env)):
+        problems.append(env_problem)
+    if is_full_run(config, query_ids) and first.env.git_commit != env.git_commit:
+        problems.append(
+            f"the run was started at commit {first.env.git_commit}, and this is "
+            f"{env.git_commit}; check out the run's commit (--allow-dirty does not change this)"
+        )
     if problems:
         raise ResumeError(f"run {run_id} cannot be resumed: " + "; ".join(problems))
     resolved = previous.run_start.config
@@ -551,8 +661,9 @@ def _reopen(
         tokenizer=tokenizer,
         mode=mode,
         query_ids=query_ids,
-        env=deps.env_probe(stack),
+        env=env,
         resumed_from=run_id,
+        allow_dirty=allow_dirty or any(_allowed_dirty(start) for start in view.run_starts),
     )
     done = {pair for pair in view.query_results if pair[0] in query_ids}
     writer = RunLogWriter(events, run_id, clock=deps.clock)
@@ -910,10 +1021,12 @@ def execute(session: RunSession) -> RunOutcome:
         close_run(session)
 
 
-def start_run(config_path: Path, deps: RunDeps | None = None) -> RunOutcome:
-    """``tripartite run start --config <path>``."""
+def start_run(
+    config_path: Path, deps: RunDeps | None = None, *, allow_dirty: bool = False
+) -> RunOutcome:
+    """``tripartite run start --config <path> [--allow-dirty]``."""
     deps = deps or RunDeps()
-    return execute(open_run(load_run_config(config_path), deps))
+    return execute(open_run(load_run_config(config_path), deps, allow_dirty=allow_dirty))
 
 
 # --- rescore (D1 Phase 0 exit item 5, R1) --------------------------------------------------------
