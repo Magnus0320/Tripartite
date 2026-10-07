@@ -292,3 +292,57 @@ Append-only. Never edit or delete an entry. To change one, add a new entry that 
 - Why needed: D4 §Health checks: `model_reachable` and `model_digest_ok` must be cheap, must never load the model, and must not report false while the model is merely unloaded.
 - How it was checked: The model follow-ups after M3 (`e7043f7`, merged in `28b6a01`): with the model loaded or not, both checks returned true in 3–29 ms; with no server, false in 3–25 ms. `/api/ps` was empty before and after 20 calls, and the server log shows only `/api/version` and `/api/tags` requests.
 - Status: confirmed
+
+### A-040
+- Date: 2026-09-29 · Architecture: v0.10
+- Confirms: A-010, with measured values. A-010 itself is unchanged.
+- Assumption: A full 540-call baseline on the M4 Pro takes about 8.1–8.4 h, inside A-010's 6–9 h.
+- Why needed: Planning M5a: two full runs, each needing an uninterrupted, awake machine.
+- How it was checked: M4's smoke run `20260929T041153Z-batch-9b45ed9e-f6c1` (27 calls): wall 54.3 s mean, 52.2 s median (9.6–97.2 s); prefill 301 tok/s; generation 31.5 tok/s with 517 output tokens on average; load about 7 ms per call. 540 × 54.3 s = 8.14 h. Scaling the measured rates to all 180 prompts in `context_report.json`, whose mean of 11,280 tokens is above the smoke set's 10,867, gives 8.35 h. If the runner cache is disabled (Open question 1, A-044), expect about 6% less.
+- Status: confirmed
+
+### A-041
+- Date: 2026-09-29 · Architecture: v0.10
+- Confirms: A-012 on the smoke set. A-012 itself is unchanged.
+- Assumption: The rule parser parses at least 95% of non-empty Qwen3-8B outputs produced with the official prompt.
+- Why needed: D2 rejects an LLM parser; delivery rate must measure the model, not the parser.
+- How it was checked: M4's smoke run: 27 of 27 non-empty outputs parsed (0% failure), each with the right number of days. Six plans got `missing_field:accommodation` on their last day, where the model omitted the line; the parser fills `-`, which is what the official format expects after returning home. M5a's full runs re-check this on 540 outputs (`metrics.json` → `parse`).
+- Status: confirmed
+
+### A-042
+- Date: 2026-09-29 · Architecture: v0.10
+- Refines: A-020 and A-036. Both are unchanged.
+- Assumption: A-020's premise is **false** for Ollama 0.33.2 with its default runner settings. `llama-server`'s host-RAM prompt cache keeps several earlier prompts (up to 8,192 MiB, evicting the oldest), not just the previous one. It also survives across client processes and warm-ups for as long as the server runs.
+- Why needed: A-036 retired A-020 because calibration found mode `total`. This entry records that A-020 would also have been wrong: if a future runtime ever calibrated as `uncached_only`, the `lcp` lower bound would be unsafe unless the runner cache were disabled (`LLAMA_ARG_CACHE_RAM=0`).
+- How it was checked: `runs/ollama-server.log` in the M4 worktree: "cache state: 5 prompts, 6970.931 MiB (limits: 8192.000 MiB, 32768 tokens …)" and "removing oldest entry". M4 AQ12: the smoke run's first call restored `val-001` from `make test-local` about 2.5 h earlier, across the warm-up.
+- Status: confirmed
+
+### A-043
+- Date: 2026-09-29 · Architecture: v0.10
+- Supersedes: A-011's claim that D4 leaves enough memory "without swapping". A-011 and A-038 are unchanged; A-038's resident-size figures still hold.
+- Assumption: Under the user's normal app load the Mac swaps while a run is going; the model's own footprint is flat. Two causes add up: the other apps, and the runner's host prompt cache (up to 8 GiB, outside Ollama's accounting; A-042). With other apps closed, the server restarted, and possibly the cache disabled, a full run should see little or no swap growth.
+- Why needed: An 8-hour run under heavy swap can slow down and exaggerate wall-clock latencies (the brief's matched budgets use wall-clock). M5a's operations and Open question 1 depend on it.
+- How to check: M5a records swap used before and after each full run (D9 §M5 operations), with the apps and cache setting noted. M4's smoke run: the model stayed at 9.91 GB, all in VRAM, in all 50 `/api/ps` samples; swap was 7.4–8.0 GB before the run and moved between 10 and 18.8 GB during it (13.3 GB at the end), with free memory around 16–30%; Activity Monitor showed `llama-server` at 17.32 GB against 9.91 GB in `/api/ps`.
+- Status: open
+
+### A-044
+- Date: 2026-09-29 · Architecture: v0.10
+- Assumption: The runner's prompt-cache save (2.7–3.6 s per call in the log) runs when the next request arrives and before its prompt is processed. It is therefore inside that call's client wall time (`timing_ms.wall_client`) and Ollama's `total_duration`, but not inside `prompt_eval_duration` (prefill) or `eval_duration` (generation).
+- Why needed: D7's latency fields and the brief's wall-clock budgets. It says which recorded latencies include cache bookkeeping.
+- How to check: For each call of a run with the cache on, compare `wall_client − (load + prefill + generation)` with the nearest preceding "prompt cache update took … ms" line in the server log. The smoke run's means are consistent with it (wall 54.3 s against prefill plus generation 52.6 s). With the cache disabled (FU-26), the gap should shrink to transport overhead.
+- Status: open
+
+### A-045
+- Date: 2026-09-29 · Architecture: v0.10
+- Assumption: Ollama 0.33.2 passes its own environment through to `llama-server`, and llama.cpp honours `LLAMA_ARG_CACHE_RAM` when no `--cache-ram` flag is given. So `LLAMA_ARG_CACHE_RAM=0` in `configs/stack.yaml`'s `runtime.env` disables the host prompt cache without changing the Ollama version pin.
+- Why needed: Open question 1 and FU-26.
+- How to check: FU-26. After restarting the dedicated server with the variable set, the runner's startup log reports the prompt cache as disabled (or no `updating prompt cache` / `cache state` lines appear over several calls), and `llama-server`'s memory in Activity Monitor stays near the `/api/ps` size. Sources that suggest it works: ollama/ollama#18264 (reported on 0.31.2: "Ollama passes its environment through to llama-server"), ollama/ollama#17351, and the llama.cpp server README (`-cram, --cache-ram N`, env `LLAMA_ARG_CACHE_RAM`, 0 disables). Older llama.cpp builds logged "prompt cache is enabled" even with 0 (llama.cpp#22127), so judge by behaviour, not only that line.
+- Status: open
+
+### A-046
+- Date: 2026-09-29 · Architecture: v0.10
+- Refines: A-001. A-001 itself is unchanged.
+- Assumption: Seeded regeneration usually reproduces raw output byte for byte only when the server state at each call is the same too, and that state includes the runner's host prompt cache (A-042). In seed-major order no call of a run can hit that cache except the run's first call and the first call after a resume. Those calls may restore a cached state left by an earlier process instead of computing the prompt, which is a different computation path. Restarting the dedicated server before each full run (D9 §M5 operations) removes that difference.
+- Why needed: R3's plan-identity diagnostic (D1) and the M5a procedure.
+- How to check: M5a's `reproduce_check.json` identity rate. With the server restarted before both runs, a non-identical first pair would point to nondeterminism other than the cache.
+- Status: open
