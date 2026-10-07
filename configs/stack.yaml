@@ -15,6 +15,7 @@ runtime:
     OLLAMA_KEEP_ALIVE: "-1"
     OLLAMA_FLASH_ATTENTION: "1"
     OLLAMA_KV_CACHE_TYPE: "f16"
+    LLAMA_ARG_CACHE_RAM: "0"        # read by llama-server: no host-RAM prompt cache (D4, FU-26)
   desktop_app_url: "http://127.0.0.1:11434"   # must have no model loaded
 model:
   tag: "qwen3:8b-q4_K_M"

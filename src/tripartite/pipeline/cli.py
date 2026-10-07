@@ -2,6 +2,9 @@
 
 - ``start --config <path>``: a new run (``make baseline``, ``make baseline-smoke``).
 - ``start --resume <run_id>``: resume an interrupted or failed run (``make resume``).
+- ``start … --allow-dirty``: let a full run (batch, all 180 queries) start or resume from a
+  working tree with uncommitted changes; ``run_start`` then records ``allow_dirty: true``. Without
+  it such a run is refused (FU-29). Subset runs such as smoke never need it.
 - ``rescore --run <run_id>``: re-score a finished run from its stored plans into
   ``runs/<run_id>/rescore-<UTC ts>/`` and compare every re-written file with the original byte for
   byte; any difference exits 1 (``make eval``, D1 Phase 0 exit item 5).
@@ -11,7 +14,8 @@ percentages (stored files keep rates in [0, 1], D7). It exits 0 when the run suc
 it failed or could not start, and 130 when it was interrupted (Ctrl-C or SIGTERM); an
 interrupted or failed run can be resumed. With the real model, a missing or stale token
 calibration, including one counted with the fake tokenizer, stops ``start`` before any call
-(D4, FU-25).
+(D4, FU-25). In fake mode ``start`` refuses the real data: ``TRIPARTITE_DATA_DIR`` must name a
+synthetic data root (FU-27).
 """
 
 import signal
@@ -30,6 +34,7 @@ from tripartite.pipeline.lock import ModelLockHeldError
 from tripartite.pipeline.metrics import format_metrics
 from tripartite.pipeline.resume import open_resume
 from tripartite.pipeline.run import (
+    DirtyTreeError,
     RescoreError,
     ResumeError,
     RunDeps,
@@ -47,6 +52,7 @@ EXIT_INTERRUPTED = 130
 CANNOT_START = (
     ConfigError,
     DataError,
+    DirtyTreeError,
     LLMError,
     ModelLockHeldError,
     OSError,
@@ -93,6 +99,13 @@ def start(
     resume: Annotated[
         str | None, typer.Option("--resume", help="The id of a run to resume.")
     ] = None,
+    allow_dirty: Annotated[
+        bool,
+        typer.Option(
+            "--allow-dirty",
+            help="Let a full run (all 180 queries) start or resume from a dirty working tree.",
+        ),
+    ] = False,
 ) -> None:
     """Start a run from a config, or resume one by its run id."""
     if (config is None) == (resume is None):
@@ -101,9 +114,9 @@ def start(
     deps.echo = typer.echo  # one progress line per pair
     try:
         session: RunSession = (
-            open_run(load_run_config(config), deps)
+            open_run(load_run_config(config), deps, allow_dirty=allow_dirty)
             if config is not None
-            else open_resume(str(resume), deps)
+            else open_resume(str(resume), deps, allow_dirty=allow_dirty)
         )
     except CANNOT_START as exc:
         _fail("start", [f"{type(exc).__name__}: {exc}"])

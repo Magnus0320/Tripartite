@@ -1,5 +1,5 @@
 {
-  "calibrated_at": "2026-09-28T07:44:53Z",
+  "calibrated_at": "2026-10-07T05:23:32Z",
   "ollama_version": "0.33.2",
   "model_tag": "qwen3:8b-q4_K_M",
   "model_digest": "sha256:500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41",
@@ -15,7 +15,7 @@
       "lcp": null,
       "prompt_eval_count": 6448,
       "prompt_eval_cached_count": null,
-      "load_ms": 2574.396584
+      "load_ms": 3318.482833
     },
     {
       "kind": "cold",
@@ -24,7 +24,7 @@
       "lcp": null,
       "prompt_eval_count": 5310,
       "prompt_eval_cached_count": null,
-      "load_ms": 2040.145125
+      "load_ms": 1801.12025
     },
     {
       "kind": "cold",
@@ -33,7 +33,7 @@
       "lcp": null,
       "prompt_eval_count": 6217,
       "prompt_eval_cached_count": null,
-      "load_ms": 2040.237958
+      "load_ms": 2297.947042
     },
     {
       "kind": "cold",
@@ -42,7 +42,7 @@
       "lcp": null,
       "prompt_eval_count": 5858,
       "prompt_eval_cached_count": null,
-      "load_ms": 2047.827125
+      "load_ms": 2310.92825
     },
     {
       "kind": "cold",
@@ -51,7 +51,7 @@
       "lcp": null,
       "prompt_eval_count": 7741,
       "prompt_eval_cached_count": null,
-      "load_ms": 2590.626917
+      "load_ms": 2306.087959
     },
     {
       "kind": "cold",
@@ -60,7 +60,7 @@
       "lcp": null,
       "prompt_eval_count": 5116,
       "prompt_eval_cached_count": null,
-      "load_ms": 2593.877709
+      "load_ms": 2309.344542
     },
     {
       "kind": "cold",
@@ -69,7 +69,7 @@
       "lcp": null,
       "prompt_eval_count": 7714,
       "prompt_eval_cached_count": null,
-      "load_ms": 2592.019791
+      "load_ms": 2317.481334
     },
     {
       "kind": "cold",
@@ -78,7 +78,7 @@
       "lcp": null,
       "prompt_eval_count": 6131,
       "prompt_eval_cached_count": null,
-      "load_ms": 2600.217208
+      "load_ms": 2309.670166
     },
     {
       "kind": "cold",
@@ -87,7 +87,7 @@
       "lcp": null,
       "prompt_eval_count": 5460,
       "prompt_eval_cached_count": null,
-      "load_ms": 2562.713625
+      "load_ms": 2313.977708
     },
     {
       "kind": "warm",
@@ -96,7 +96,7 @@
       "lcp": 5460,
       "prompt_eval_count": 5460,
       "prompt_eval_cached_count": null,
-      "load_ms": 3.944334
+      "load_ms": 4.661708
     },
     {
       "kind": "warm",
@@ -105,7 +105,7 @@
       "lcp": 511,
       "prompt_eval_count": 6448,
       "prompt_eval_cached_count": null,
-      "load_ms": 0.785292
+      "load_ms": 0.619417
     }
   ]
 }

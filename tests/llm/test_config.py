@@ -32,6 +32,7 @@ D4_ENV = {
     "OLLAMA_KEEP_ALIVE": "-1",
     "OLLAMA_FLASH_ATTENTION": "1",
     "OLLAMA_KV_CACHE_TYPE": "f16",
+    "LLAMA_ARG_CACHE_RAM": "0",  # read by llama-server, not Ollama (D4 §Runner prompt cache)
 }
 
 
@@ -91,6 +92,8 @@ DELETE = object()
         ("runtime.env.OLLAMA_CONTEXT_LENGTH", "4096", "OLLAMA_CONTEXT_LENGTH"),
         ("runtime.env.OLLAMA_KV_CACHE_TYPE", DELETE, "OLLAMA_KV_CACHE_TYPE"),
         ("runtime.env.OLLAMA_DEBUG", "1", "OLLAMA_DEBUG"),
+        ("runtime.env.LLAMA_ARG_CACHE_RAM", DELETE, "LLAMA_ARG_CACHE_RAM"),
+        ("runtime.env.LLAMA_ARG_CACHE_RAM", "8192", "LLAMA_ARG_CACHE_RAM"),
         ("runtime.env.OLLAMA_HOST", "127.0.0.1:11434", "OLLAMA_HOST"),
         ("runtime.env.OLLAMA_NUM_PARALLEL", 1, "string"),
         ("runtime.version", "0.33", "version"),
@@ -142,7 +145,9 @@ def test_sh_format_round_trips_through_the_shell(stack: StackConfig) -> None:
         ["sh", "-c", script, "sh", env_sh], capture_output=True, text=True, check=True
     ).stdout
 
-    exported = dict(line.split("=", 1) for line in out.splitlines() if line.startswith("OLLAMA_"))
+    exported = dict(
+        line.split("=", 1) for line in out.splitlines() if line.split("=", 1)[0] in D4_ENV
+    )
     assert exported == D4_ENV
 
 

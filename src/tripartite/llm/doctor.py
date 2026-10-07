@@ -5,7 +5,12 @@ Checks, each reported as one line (``ok``, ``warn``, ``fail`` or ``info``):
 - ``ollama --version`` (the CLI, asked about our server) equals ``runtime.version``;
 - the server at ``runtime.url`` answers, and its ``/api/version`` equals ``runtime.version``;
 - the server was started with the D4 environment: the last ``server config`` line of
-  ``runs/ollama-server.log`` matches ``runtime.env`` (A-022 evidence);
+  ``runs/ollama-server.log`` matches ``runtime.env`` (A-022 evidence). That line lists only
+  Ollama's own ``OLLAMA_*`` variables, so a variable that is passed through to the runner
+  (``LLAMA_ARG_CACHE_RAM``) is not compared there;
+- the runner's host-RAM prompt cache is off, as ``LLAMA_ARG_CACHE_RAM=0`` asks: since the last
+  server start, the runner's latest start-up line does not say ``prompt cache is enabled``, and
+  the log has no prompt-cache update line (D4 §Runner prompt cache, FU-26, A-045);
 - ``/api/tags`` lists ``model.tag`` with the pinned digest;
 - the loaded model (``/api/ps``) has the pinned digest and ``context_length == model.num_ctx``.
   If nothing is loaded, doctor loads the model on the dedicated server with **no options**,
@@ -69,6 +74,15 @@ CALIBRATION_LEVELS: Final[dict[str, Level]] = {
 """Both reports come after doctor (D4), so a missing or stale one is only a warning."""
 GO_MAX_DURATION: Final = "2562047h47m16.854775807s"
 """How Go prints ``math.MaxInt64`` nanoseconds: Ollama's keep-alive for ``-1`` (forever)."""
+OLLAMA_ENV_PREFIX: Final = "OLLAMA_"
+"""Ollama's ``server config`` line reports only its own variables, which all start with this."""
+RUNNER_CACHE_ENV: Final = "LLAMA_ARG_CACHE_RAM"
+ACTIVE_CACHE_MARKERS: Final = ("updating prompt cache", "prompt cache update took")
+"""What ``llama-server`` logs each time it saves a prompt into its host-RAM cache."""
+RUNNER_CACHE_STATE: Final = "prompt cache is "
+"""``llama-server``'s start-up line: ``prompt cache is disabled - …`` with ``--cache-ram 0`` (as
+Ollama 0.33.2's runner logs it under ``LLAMA_ARG_CACHE_RAM=0``), else ``prompt cache is enabled,
+size limit: …``."""
 HEALTH_TIMEOUT_S: Final = 1.0
 """The total time a health check may take, loading ``configs/stack.yaml`` included (D4)."""
 
@@ -199,13 +213,51 @@ def _env_check(stack: StackConfig, log_text: str | None, log_label: str) -> Chec
     if line is None:
         return Check(label, "fail", 'no msg="server config" line; start it with `make serve-model`')
     wrong = []
-    for key, expected in stack.runtime.env.items():
+    logged_keys = [key for key in stack.runtime.env if key.startswith(OLLAMA_ENV_PREFIX)]
+    for key in logged_keys:
+        expected = stack.runtime.env[key]
         logged = server_config_value(line, key)
         if logged is None or not env_value_matches(key, expected, logged):
             wrong.append(f"{key}={logged!r} (expected {expected!r})")
     if wrong:
         return Check(label, "fail", "the running server's environment differs: " + ", ".join(wrong))
-    return Check(label, "ok", f"{len(stack.runtime.env)} runtime.env values match")
+    passed_on = [key for key in stack.runtime.env if key not in logged_keys]
+    note = f"; {', '.join(passed_on)} is for the runner and not logged here" if passed_on else ""
+    return Check(label, "ok", f"{len(logged_keys)} runtime.env values match{note}")
+
+
+def since_last_server_start(log_text: str) -> str:
+    """The log from the last ``server config`` line on: what the running server wrote."""
+    index = log_text.rfind('msg="server config"')
+    return log_text if index < 0 else log_text[index:]
+
+
+def _runner_cache_check(stack: StackConfig, log_text: str | None, log_label: str) -> Check | None:
+    """With ``LLAMA_ARG_CACHE_RAM=0`` the runner must never save a prompt into host RAM. None
+    when ``runtime.env`` does not disable the cache."""
+    if stack.runtime.env.get(RUNNER_CACHE_ENV) != "0":
+        return None
+    label = f"runner prompt cache ({log_label})"
+    lines = since_last_server_start(log_text or "").splitlines()
+    active = [line for line in lines if any(marker in line for marker in ACTIVE_CACHE_MARKERS)]
+    if active:
+        return Check(
+            label,
+            "fail",
+            f"{len(active)} prompt-cache update line(s) since the server started, although "
+            f"runtime.env sets {RUNNER_CACHE_ENV}=0; restart it with `make serve-model`. "
+            f"The first: {active[0].strip()}",
+        )
+    states = [line.strip() for line in lines if RUNNER_CACHE_STATE in line]
+    if states and RUNNER_CACHE_STATE + "enabled" in states[-1]:
+        return Check(
+            label,
+            "fail",
+            f"the runner started with its prompt cache on, although runtime.env sets "
+            f"{RUNNER_CACHE_ENV}=0; restart the server with `make serve-model`: {states[-1]}",
+        )
+    said = f"the runner says: {states[-1]}" if states else "no runner has started yet"
+    return Check(label, "ok", f"{RUNNER_CACHE_ENV}=0; no prompt-cache update; {said}")
 
 
 def _describe(m: RunningModel) -> str:
@@ -343,6 +395,12 @@ def run_doctor(stack: StackConfig, deps: DoctorDeps) -> list[Check]:
                     Check("model (/api/tags)", "ok", f"{stack.model.tag} sha256:{local[0].digest}")
                 )
                 checks.append(_loaded_model_checks(stack, deps, log_text))
+                # Re-read: doctor's own load may just have started the runner.
+                cache = _runner_cache_check(
+                    stack, _read_log(deps.log_path), "runs/ollama-server.log"
+                )
+                if cache is not None:
+                    checks.append(cache)
         except LLMError as exc:
             checks.append(Check("model", "fail", f"{type(exc).__name__}: {exc}"))
 
