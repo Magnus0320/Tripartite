@@ -119,3 +119,30 @@ def test_health_does_not_read_the_data(
     monkeypatch.setenv("TRIPARTITE_DATA_DIR", str(empty))
 
     assert client.get("/api/health").status_code == 200
+
+
+def test_a_server_that_hangs_costs_one_timeout_not_two(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TRIPARTITE_LLM")
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as silent:
+        silent.bind(("127.0.0.1", 0))
+        silent.listen(8)  # connections are accepted by the kernel and never answered
+        port: int = silent.getsockname()[1]
+        assert port not in OLLAMA_PORTS
+        path = tmp_path / "stack.yaml"
+        path.write_text(
+            STACK_PATH.read_text(encoding="utf-8").replace("127.0.0.1:11435", f"127.0.0.1:{port}"),
+            encoding="utf-8",
+        )
+        app.dependency_overrides[stack_path] = lambda: path
+        try:
+            start = time.monotonic()
+            response = client.get("/api/health")
+            elapsed = time.monotonic() - start
+        finally:
+            del app.dependency_overrides[stack_path]
+
+    assert response.json()["model_reachable"] is False
+    assert response.json()["model_digest_ok"] is False
+    assert 0.9 < elapsed < 1.8  # each check waits 1.0 s; side by side that is one wait
