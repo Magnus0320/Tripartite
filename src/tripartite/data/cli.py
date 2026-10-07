@@ -1,22 +1,32 @@
-"""``tripartite data``: fetch and verify the pinned data (ARCHITECTURE.md D3, D5, §6).
+"""``tripartite data``: fetch and verify the pinned data (ARCHITECTURE.md D3, D5, §6), and write
+the synthetic set (D4 §Fake mode and data, FU-28).
 
 ``make data`` runs ``fetch`` then ``verify``; ``make doctor`` runs ``verify``. Both exit 1 on
 any mismatch with the pins, printing the expected and actual values. ``fetch`` also unpacks the
 verified database zip into ``vendor/travelplanner/database/`` (D5 §Database — unpacking).
+
+``synthetic --out DIR`` writes the shared synthetic set under ``DIR`` and prints the absolute data
+root on stdout, for ``TRIPARTITE_DATA_DIR``. Fake mode is synthetic-data-only (D4), so this is
+what web development and ``make api`` in fake mode run on. It refuses a ``DIR`` that resolves to
+``<repo>/data`` or to a path inside it, where the real data lives.
 """
 
 import zipfile
+from pathlib import Path
+from typing import Annotated
 
 import typer
 
 from tripartite.data import download, manifest
+from tripartite.data import synthetic as synthetic_set
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
 
 @app.callback()
 def main() -> None:
-    """Fetch and verify the pinned dataset files and the sandbox database zip."""
+    """Fetch and verify the pinned dataset files and the sandbox database zip; write the
+    synthetic set for fake mode."""
 
 
 def _fail(command: str, problems: list[str]) -> typer.Exit:
@@ -78,3 +88,35 @@ def verify() -> None:
     if problems:
         raise _fail("verify", problems)
     typer.echo("data verify: OK")
+
+
+@app.command()
+def synthetic(
+    out: Annotated[
+        Path,
+        typer.Option("--out", help="The directory to write the set under; never inside data/."),
+    ],
+) -> None:
+    """Write the shared synthetic set (never real data) under --out and print the absolute data
+    root to use as TRIPARTITE_DATA_DIR."""
+    root = out.resolve()
+    real = manifest.DATA_DIR.resolve()
+    if root.is_relative_to(real):
+        raise _fail(
+            "synthetic",
+            [
+                f"--out {out} resolves to {root}, which is inside {real}: that tree holds the "
+                "real data, and the synthetic set must never be written there; choose a "
+                "directory outside it"
+            ],
+        )
+    try:
+        synthetic_set.write_synthetic_data_dir(root)
+    except OSError as exc:
+        raise _fail("synthetic", [f"cannot write the set under {root}: {exc}"]) from None
+    typer.echo(
+        f"data synthetic: wrote {synthetic_set.N} synthetic rows to {root / 'raw'}; "
+        f"use the path below as {manifest.DATA_DIR_ENV}",
+        err=True,
+    )
+    typer.echo(root)

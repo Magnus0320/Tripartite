@@ -1,4 +1,4 @@
-"""The shared synthetic set (ARCHITECTURE.md D3): FU-14 and FU-16.
+"""The shared synthetic set (ARCHITECTURE.md D3): FU-14, FU-16 and FU-28.
 
 FU-14: it loads through ``TRIPARTITE_DATA_DIR`` alone. This is exactly what other sessions' tests
 do: write the set, set the variable, call the loaders. No fixture from this package is used and
@@ -7,18 +7,23 @@ nothing in ``tripartite.data`` is monkeypatched.
 FU-16: every evaluator-only field except ``days`` carries a detectable canary on every row, and
 ``canaries(i)`` lists them all (D3 test 3). The columns come from the loader's own
 ``EVAL_COLUMNS``, not from the synthetic module.
+
+FU-28: the generator moved to ``tripartite.data.synthetic`` and the fixture re-exports it. The
+bytes of both files are pinned to their sha256 from before the move, and every fixture name is
+the generator's own object.
 """
 
 import ast
 import csv
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from tests.fixtures import synthetic_data
 from tests.fixtures.synthetic_data import write_synthetic_data_dir
-from tripartite.data import manifest
+from tripartite.data import manifest, synthetic
 from tripartite.data.planner_inputs import get_planner_input, load_planner_inputs
 from tripartite.evaluation.records import EVAL_COLUMNS, load_eval_records, parse_local_constraint
 
@@ -66,6 +71,60 @@ def test_the_synthetic_data_root_holds_the_two_raw_files_only(tmp_path: Path) ->
         assert tuple(reader.fieldnames or ()) == EVAL_COLUMNS == synthetic_data.COLUMNS
         assert len(list(reader)) == 180
     assert (root / "raw" / "validation_ref_info.jsonl").read_bytes().count(b"\n") == 180
+
+
+# --- FU-28: the bytes are pinned, and the fixture is the generator -----------------------------
+
+PINNED = {
+    "validation.csv": (
+        75_022,
+        "065db80ca10b8924dccd4cd5b6d1837533d37ae5d60e9f98a03321c3f9a97922",
+    ),
+    "validation_ref_info.jsonl": (
+        13_464,
+        "d2a12681d2d50e0575ba4fed6ff6952ce91b819b81fa284fae68be6dd0389d44",
+    ),
+}
+"""Size and sha256 of each file, recorded from ``tests/fixtures/synthetic_data.py`` at
+``5d42303``, before FU-28 moved the generator. A change here changes every session's test data."""
+
+
+PUBLIC_NAMES = (
+    "CANARY",
+    "CANARY_NUMBER_COLUMNS",
+    "CANARY_STRING_COLUMNS",
+    "COLUMNS",
+    "LOCAL_CONSTRAINT_ODD",
+    "N",
+    "budget",
+    "canaries",
+    "local_constraint",
+    "people_number",
+    "query",
+    "ref_line",
+    "row",
+    "visiting_city_number",
+    "write_csv",
+    "write_jsonl",
+    "write_raw",
+    "write_synthetic_data_dir",
+)
+"""Every public name the fixture had before the move; other sessions import them."""
+
+
+@pytest.mark.parametrize("write", [write_synthetic_data_dir, synthetic.write_synthetic_data_dir])
+def test_the_synthetic_files_have_the_pinned_bytes(write: Any, tmp_path: Path) -> None:
+    raw = write(tmp_path) / "raw"
+
+    assert {
+        name: ((raw / name).stat().st_size, manifest.sha256_file(raw / name)) for name in PINNED
+    } == PINNED
+
+
+def test_the_fixture_re_exports_every_name_of_the_generator_unchanged() -> None:
+    assert sorted(synthetic_data.__all__) == sorted(PUBLIC_NAMES)
+    for name in PUBLIC_NAMES:
+        assert getattr(synthetic_data, name) is getattr(synthetic, name), name
 
 
 # --- FU-16: canaries (D3 test 3) --------------------------------------------------------------
