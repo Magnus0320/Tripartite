@@ -89,7 +89,12 @@ from tripartite.llm.errors import (
 from tripartite.llm.fake_client import make_client
 from tripartite.llm.ollama_client import GENERATE_ENDPOINT, LLMClient, OllamaClient, llm_mode
 from tripartite.llm.tokenizer import Tokenizer, tokenizer_from_env
-from tripartite.parse.text_plan_parser import PARSER_VERSION_ID, parse_plan, split_think
+from tripartite.parse.text_plan_parser import (
+    PARSER_VERSION_ID,
+    ParsedPlan,
+    parse_plan,
+    split_think,
+)
 from tripartite.pipeline.lock import acquire_model_lock
 from tripartite.pipeline.metrics import (
     METRICS_FILE,
@@ -175,6 +180,11 @@ def _command(args: Sequence[str]) -> str | None:
     return proc.stdout.strip() if proc.returncode == 0 else None
 
 
+def current_git_commit() -> str:
+    """The repository's HEAD commit, or ``"unknown"`` if git cannot say."""
+    return _command(["git", "rev-parse", "HEAD"]) or "unknown"
+
+
 def collect_env(stack: StackConfig, log_path: Path = SERVER_LOG_PATH) -> EnvInfo:
     """The ``run_start.env`` of this machine (D7): versions, locks, git state and hardware."""
     status = _command(["git", "status", "--porcelain"])
@@ -187,7 +197,7 @@ def collect_env(stack: StackConfig, log_path: Path = SERVER_LOG_PATH) -> EnvInfo
         python=platform.python_version(),
         uv_lock_sha256=sha256_file(REPO_ROOT / "uv.lock"),
         evalenv_lock_sha256=sha256_file(REPO_ROOT / "evalenv" / "uv.lock"),
-        git_commit=_command(["git", "rev-parse", "HEAD"]) or "unknown",
+        git_commit=current_git_commit(),
         git_dirty=bool(status) if status is not None else True,
         macos=platform.mac_ver()[0] or platform.platform(),
         chip=(
@@ -777,6 +787,17 @@ def _sum(values: Sequence[float | None]) -> float | None:
     return sum(present) if present else None
 
 
+def failure_reason_for(parsed: ParsedPlan | None, done_reason: str | None) -> str | None:
+    """A pair's ``query_result.failure_reason`` (D2): ``llm_error`` when no call gave an output,
+    ``length_no_plan`` when the output was cut at ``num_predict`` and holds no plan, else the
+    parser's own reason (None for a delivered plan). The run and R2 both use it."""
+    if parsed is None:
+        return "llm_error"
+    if parsed.plan is None:
+        return "length_no_plan" if done_reason == "length" else parsed.failure_reason
+    return None
+
+
 def run_one(session: RunSession, query_id: str, seed: int) -> QueryResult:
     """One (query, seed) pair: call, parse, evaluate, and its ``query_result`` (D3's
     ``pipeline.run_one``). Only the ``PlannerInput`` reaches the planner; the ``EvalRecord`` goes
@@ -825,12 +846,7 @@ def run_one(session: RunSession, query_id: str, seed: int) -> QueryResult:
         )
     )
 
-    reason: str | None = None
-    if parsed is None:
-        reason = "llm_error"
-    elif plan is None:
-        length = final.result is not None and final.result.done_reason == "length"
-        reason = "length_no_plan" if length else parsed.failure_reason
+    reason = failure_reason_for(parsed, None if final.result is None else final.result.done_reason)
     counts = [session.output_counts.pop(call.call_id) for call in output.calls]
     results = [call.result for call in output.calls if call.result is not None]
     query_result = QueryResult(
@@ -1043,6 +1059,11 @@ class RescoreReport:
     def ok(self) -> bool:
         return not self.mismatches
 
+    @property
+    def mismatched_names(self) -> list[str]:
+        """The names of the files that differ, in ``compared`` order."""
+        return [line.split(":", 1)[0] for line in self.mismatches]
+
 
 def _difference(name: str, original: bytes, rescored: bytes) -> str:
     for number, (a, b) in enumerate(
@@ -1051,6 +1072,14 @@ def _difference(name: str, original: bytes, rescored: bytes) -> str:
         if a != b:
             return f"{name}: line {number} differs"
     return f"{name}: {len(original)} bytes in the run, {len(rescored)} re-scored"
+
+
+def require_scoring_inputs(start: RunStart) -> None:
+    """A run is re-scored only against the dataset files and the vendored evaluator it used."""
+    if dataset_info().files_sha256 != start.dataset.files_sha256:
+        raise RescoreError("the dataset files differ from the ones the run used")
+    if sha256_file(VENDOR_LOCK) != start.evaluator.vendor_lock_sha256:
+        raise RescoreError("vendor/travelplanner/VENDOR.lock differs from the run's")
 
 
 def rescore_run(
@@ -1072,10 +1101,7 @@ def rescore_run(
         raise RescoreError(f"run {run_id} is {manifest.status}; only a succeeded run is scored")
     view = load_run_log(run_dir / EVENTS_FILE)
     start = view.run_start
-    if dataset_info().files_sha256 != start.dataset.files_sha256:
-        raise RescoreError("the dataset files differ from the ones the run used")
-    if sha256_file(VENDOR_LOCK) != start.evaluator.vendor_lock_sha256:
-        raise RescoreError("vendor/travelplanner/VENDOR.lock differs from the run's")
+    require_scoring_inputs(start)
     records = {record.query_id: record for record in load_eval_records(start.split)}
     out_dir = run_dir / f"rescore-{clock():%Y%m%dT%H%M%SZ}"
     out_dir.mkdir()

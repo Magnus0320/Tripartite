@@ -1,4 +1,4 @@
-"""``tripartite run``: start, resume and re-score runs (ARCHITECTURE.md D1, D7, D9).
+"""``tripartite run``: start, resume, re-score and compare runs (ARCHITECTURE.md D1, D7, D9).
 
 - ``start --config <path>``: a new run (``make baseline``, ``make baseline-smoke``).
 - ``start --resume <run_id>``: resume an interrupted or failed run (``make resume``).
@@ -8,6 +8,11 @@
 - ``rescore --run <run_id>``: re-score a finished run from its stored plans into
   ``runs/<run_id>/rescore-<UTC ts>/`` and compare every re-written file with the original byte for
   byte; any difference exits 1 (``make eval``, D1 Phase 0 exit item 5).
+- ``reproduce-check --run <a> --run2 <b> [--allow-different-commit]``: R1, R2 and R3 between two
+  succeeded runs, with the output-identity diagnostic, written to
+  ``runs/reproduce/<a>__<b>/reproduce_check.json`` (``make reproduce-check``, D9 §M5a). Exits 0
+  when all three pass, 1 when one fails (the file is still written), and 2 when the runs cannot
+  be compared (nothing is written).
 
 ``start`` prints the run id first, one line per pair, then the six official scores as
 percentages (stored files keep rates in [0, 1], D7). It exits 0 when the run succeeded, 1 when
@@ -31,7 +36,8 @@ from tripartite.data.manifest import DataError
 from tripartite.evaluation.bridge_client import BridgeError, EvaluationError
 from tripartite.llm.errors import LLMError
 from tripartite.pipeline.lock import ModelLockHeldError
-from tripartite.pipeline.metrics import format_metrics
+from tripartite.pipeline.metrics import AggregateMismatchError, format_metrics
+from tripartite.pipeline.reproduce import PreconditionError, format_report, reproduce_check
 from tripartite.pipeline.resume import open_resume
 from tripartite.pipeline.run import (
     DirtyTreeError,
@@ -49,6 +55,7 @@ from tripartite.runlog.reader import RunLogError
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
 EXIT_INTERRUPTED = 130
+EXIT_CANNOT_COMPARE = 2
 CANNOT_START = (
     ConfigError,
     DataError,
@@ -166,3 +173,51 @@ def rescore(
     if not report.ok:
         _fail("rescore", [f"{len(report.mismatches)} file(s) differ from the run (R1)"])
     typer.echo(f"run rescore: {len(report.compared)} files byte-identical")
+
+
+@app.command("reproduce-check")
+def reproduce_check_command(
+    run: Annotated[str, typer.Option("--run", help="The id of the first succeeded run.")],
+    run2: Annotated[str, typer.Option("--run2", help="The id of the second succeeded run.")],
+    allow_different_commit: Annotated[
+        bool,
+        typer.Option(
+            "--allow-different-commit",
+            help="Compare runs recorded at different commits. Diagnostics only.",
+        ),
+    ] = False,
+) -> None:
+    """Check R1, R2 and R3 between two succeeded runs and report how many outputs are
+    byte-identical. Exits 1 when a check fails and 2 when the runs cannot be compared."""
+    deps = default_deps()
+    try:
+        report = reproduce_check(
+            run,
+            run2,
+            allow_different_commit=allow_different_commit,
+            runs_dir=deps.runs_dir,
+            bridge=deps.bridge,
+            clock=deps.clock,
+        )
+    except PreconditionError as exc:
+        problems = exc.problems
+    except (
+        AggregateMismatchError,
+        BridgeError,
+        DataError,
+        EvaluationError,
+        OSError,
+        RescoreError,
+        RunLogError,
+        ValidationError,
+        ValueError,
+    ) as exc:
+        problems = [f"{type(exc).__name__}: {exc}"]
+    else:
+        for line in format_report(report):
+            typer.echo(f"run reproduce-check: {line}")
+        raise typer.Exit(report.exit_code)
+    for problem in problems:
+        typer.echo(f"run reproduce-check: {problem}", err=True)
+    typer.echo("run reproduce-check: CANNOT COMPARE, nothing written", err=True)
+    raise typer.Exit(EXIT_CANNOT_COMPARE)

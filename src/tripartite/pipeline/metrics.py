@@ -115,6 +115,8 @@ class RunLogView:
     """Planner calls, retries included, warm-ups excluded."""
     errors: int = 0
     post_check_modes: set[str] = field(default_factory=set)
+    num_ctxs: set[int] = field(default_factory=set)
+    """Every ``request.num_ctx`` sent, warm-ups included (``run_start`` does not carry it)."""
 
     @property
     def run_start(self) -> RunStartEvent:
@@ -139,6 +141,7 @@ def load_run_log(events_path: Path) -> RunLogView:
             check = (event.model_extra or {}).get("post_check")
             if isinstance(check, dict) and isinstance(check.get("mode"), str):
                 view.post_check_modes.add(check["mode"])
+            view.num_ctxs.add(event.request.num_ctx)
             if event.role == WARMUP_ROLE:
                 continue
             view.llm_calls += 1
