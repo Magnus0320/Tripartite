@@ -167,7 +167,7 @@
     },
     "/api/queries": {
       "get": {
-        "description": "All 180 validation queries, in query_id order.",
+        "description": "All 180 validation queries, in query_id order; 503 if the data is missing or invalid.",
         "operationId": "list_queries_api_queries_get",
         "responses": {
           "200": {
@@ -179,6 +179,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The data is missing or invalid"
           }
         },
         "summary": "List Queries"
@@ -186,7 +196,7 @@
     },
     "/api/queries/{query_id}": {
       "get": {
-        "description": "One validation query; 404 if the query_id is unknown.",
+        "description": "One validation query; 404 if the query_id is unknown, 503 if the data is missing or\ninvalid.",
         "operationId": "get_query_api_queries__query_id__get",
         "parameters": [
           {
@@ -229,6 +239,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The data is missing or invalid"
           }
         },
         "summary": "Get Query"

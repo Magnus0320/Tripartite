@@ -1,13 +1,15 @@
 """``GET /api/queries`` and ``GET /api/queries/{query_id}`` on the synthetic set (D8, D3)."""
 
 import dataclasses
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from tests.fixtures import synthetic_data
 from tripartite.api.schemas import QueryItem
-from tripartite.data.planner_inputs import PlannerInput
+from tripartite.data.manifest import VALIDATION_REF_INFO, DataError
+from tripartite.data.planner_inputs import PlannerInput, load_planner_inputs
 
 ROWS = range(1, 181)
 ALLOWED = {"query_id", "query"}
@@ -55,6 +57,59 @@ def test_an_unknown_query_id_is_404(client: TestClient, query_id: str) -> None:
     body = response.json()
     assert set(body) == {"detail"}
     assert query_id in body["detail"]
+
+
+@pytest.mark.parametrize("path", ["/api/queries", "/api/queries/val-001"])
+def test_an_empty_data_dir_is_503_with_the_loaders_message(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setenv("TRIPARTITE_DATA_DIR", str(empty))
+    with pytest.raises(FileNotFoundError) as raised:
+        load_planner_inputs()
+
+    response = client.get(path)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": str(raised.value)}
+    assert str(empty / "raw" / "validation.csv") in response.json()["detail"]
+
+
+@pytest.mark.parametrize("path", ["/api/queries", "/api/queries/val-001"])
+def test_a_data_error_is_503_with_its_message(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    missing = tmp_path / "missing"
+    monkeypatch.setenv("TRIPARTITE_DATA_DIR", str(missing))
+    with pytest.raises(DataError) as raised:
+        load_planner_inputs()
+
+    response = client.get(path)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": str(raised.value)}
+    assert "TRIPARTITE_DATA_DIR" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("path", ["/api/queries", "/api/queries/val-001"])
+def test_invalid_data_is_503_with_the_loaders_message(
+    client: TestClient, synthetic_data: Path, path: str
+) -> None:
+    ref_info = synthetic_data / "raw" / VALIDATION_REF_INFO
+    lines = ref_info.read_bytes().split(b"\n")
+    ref_info.write_bytes(b"\n".join(lines[:100]) + b"\n")
+    with pytest.raises(ValueError, match="has 100 lines") as raised:
+        load_planner_inputs()
+
+    response = client.get(path)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": str(raised.value)}
+
+
+def test_an_unknown_query_id_is_still_404_not_503(client: TestClient) -> None:
+    assert client.get("/api/queries/val-999").status_code == 404
 
 
 def test_the_query_model_has_only_planner_input_fields() -> None:
