@@ -346,3 +346,43 @@ Append-only. Never edit or delete an entry. To change one, add a new entry that 
 - Why needed: R3's plan-identity diagnostic (D1) and the M5a procedure.
 - How to check: M5a's `reproduce_check.json` identity rate. With the server restarted before both runs, a non-identical first pair would point to nondeterminism other than the cache.
 - Status: open
+
+### A-047
+- Date: 2026-10-07 · Architecture: v0.11
+- Confirms: A-045. A-045 itself is unchanged.
+- Assumption: On Ollama 0.33.2, `LLAMA_ARG_CACHE_RAM=0` in the dedicated server's environment reaches `llama-server` and disables its host-RAM prompt cache, without changing the Ollama version pin.
+- Why needed: The approved Open question 1 (D4 §Runner prompt cache) and M5a's operating conditions.
+- How it was checked: FU-26 (`f62fe29`, merged in `dba2ac2`). The `ollama serve` process environment (`ps eww`) contains `LLAMA_ARG_CACHE_RAM=0`, and the `starting llama-server` command line carries no cache flag. All 19 runner starts after the restart log `srv load_model: prompt cache is disabled - use --cache-ram N to enable it`. Over doctor, calibration, `make test-local` and smoke run `20261007T053937Z-batch-9b45ed9e-5fd2` there were 0 `updating prompt cache`, 0 `prompt cache update took` and 0 `cache state:` lines. Ollama's own `server config` line never lists pass-through variables, so the startup line and the behaviour are the evidence.
+- Status: confirmed
+
+### A-048
+- Date: 2026-10-07 · Architecture: v0.11
+- Confirms: A-044. A-044 itself is unchanged.
+- Assumption: The runner's prompt-cache save ran before each request's prompt processing, so it sat inside the client wall time and outside prefill and generation.
+- Why needed: D7's latency fields: which recorded latencies include runner bookkeeping.
+- How it was checked: With the cache off (FU-26), wall − (prefill + generation) fell from about 1.8 s per call (v0.10's smoke run, cache on) to 0.02 s per call (max 0.04 s) over all 27 calls of smoke run `20261007T053937Z-batch-9b45ed9e-5fd2`. With the cache off, `latency_ms.wall` is prefill plus generation plus transport overhead only.
+- Status: confirmed
+
+### A-049
+- Date: 2026-10-07 · Architecture: v0.11
+- Supersedes: A-040's expectation that disabling the runner cache saves about 6% of wall time. A-040 itself is unchanged; its measured figures stand.
+- Assumption: With the runner cache off, a full 540-call baseline takes about 8.2–8.5 h on the M4 Pro. There is no wall-time saving from the cache change.
+- Why needed: Planning M5a.2 (two consecutive full runs, about 17 h of an awake, otherwise idle machine).
+- How it was checked: Smoke run `20261007T053937Z-batch-9b45ed9e-5fd2` (cache off, apps closed): mean wall 54.56 s per call (median 53.77 s) against 54.3 s for v0.10's run. The bookkeeping gap vanished, but prefill was about 4% slower (283 tok/s against about 294 tok/s for v0.10 excluding its cache-restored first call); generation was 32.0 against 31.5 tok/s. With one run each, the prefill difference is treated as run-to-run variance, not attributed to a cause. 540 × 54.56 s = 8.18 h; the full set's prompts are longer on average (11,280 tokens against the smoke set's 10,867), so slightly more. M5a.2's two runs re-measure this.
+- Status: open
+
+### A-050
+- Date: 2026-10-07 · Architecture: v0.11
+- Refines: A-043. A-043 itself is unchanged.
+- Assumption: With other apps closed and the runner cache off, a run does not grow swap. The runner's memory sits about 0.3 GB above the `/api/ps` size, instead of about 7 GB above it with the cache on.
+- Why needed: M5a.2's eight-hour runs and their wall-clock latencies.
+- How it was checked: Smoke run `20261007T053937Z-batch-9b45ed9e-5fd2`: `llama-server` `footprint` 10.25–10.28 GB (10.17 GB before, 10.20 GB after) against 17.32 GB in v0.10's run; `/api/ps` 9.91 GB, all in VRAM, in all 50 samples; swap 2.70 GB before, 2.68–2.70 GB during and 2.68 GB after, against 7.4 / 10–18.8 / 13.3 GB in v0.10's run; system-wide free memory 32–37% during the run. Apps were closed this time and open in v0.10's run, so the two causes (apps, runner cache) are not separated: A-043 is supported, not confirmed. M5a.2 records swap before and after each full run.
+- Status: open
+
+### A-051
+- Date: 2026-10-07 · Architecture: v0.11
+- Refines: A-001 and A-046. Both are unchanged.
+- Assumption (an observation, unconfirmed): on this pinned stack, seeded sampling at T=0.7 reproduces raw outputs byte for byte for all or nearly all calls across server restarts, a week's gap and the runner-cache change. Evidence: smoke runs `20260929T041153Z-batch-9b45ed9e-f6c1` (v0.10, cache on) and `20261007T053937Z-batch-9b45ed9e-5fd2` (cache off) have identical per-seed scores for every official metric (for example commonsense micro 0.7222…, 0.7222…, 0.7777…; hard micro 0.3333…, 0.2380…, 0.3333…), and identical token statistics (input mean 10,866.78; output mean 515.7037…, median 514, p95 723). That makes 27 byte-identical outputs likely. It could not be checked directly: the first run's directory lived in a worktree that has since been removed.
+- Why needed: If it holds, R3 will pass by a wide margin, and plan-identity (D1's diagnostic) becomes a strong check in its own right; if a later change breaks identity, that becomes visible.
+- How to check: M5a.2's `reproduce_check.json` → `identity`: overall, per seed, and each seed's first call (D9 §M5a: `reproduce-check`). Optionally, earlier: run `reproduce-check --allow-different-commit` on two smoke runs that both still exist. A per-seed report is required, because a seed-dependent effect would hide in the overall fraction.
+- Status: open
