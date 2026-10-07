@@ -1,6 +1,138 @@
 {
   "components": {
     "schemas": {
+      "BatchSummary": {
+        "additionalProperties": false,
+        "description": "A batch run's progress and, once it is scored, its official metrics (empty until then).",
+        "properties": {
+          "metrics": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/MetricSummary"
+            },
+            "title": "Metrics",
+            "type": "object"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/Progress"
+          }
+        },
+        "required": [
+          "progress",
+          "metrics"
+        ],
+        "title": "BatchSummary",
+        "type": "object"
+      },
+      "Constraint": {
+        "additionalProperties": false,
+        "description": "One evaluator check of a plan.",
+        "properties": {
+          "group": {
+            "enum": [
+              "commonsense",
+              "hard"
+            ],
+            "title": "Group",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "status": {
+            "enum": [
+              "pass",
+              "fail",
+              "not_applicable",
+              "not_evaluated"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "group",
+          "status",
+          "message"
+        ],
+        "title": "Constraint",
+        "type": "object"
+      },
+      "DayPlan": {
+        "additionalProperties": false,
+        "description": "One day of a plan. ``attractions`` is ``attraction`` split on ``;``, trimmed, with empty\nstrings and ``-`` removed, so the web client does no parsing.",
+        "properties": {
+          "accommodation": {
+            "title": "Accommodation",
+            "type": "string"
+          },
+          "attraction": {
+            "title": "Attraction",
+            "type": "string"
+          },
+          "attractions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Attractions",
+            "type": "array"
+          },
+          "breakfast": {
+            "title": "Breakfast",
+            "type": "string"
+          },
+          "current_city": {
+            "title": "Current City",
+            "type": "string"
+          },
+          "day": {
+            "title": "Day",
+            "type": "integer"
+          },
+          "dinner": {
+            "title": "Dinner",
+            "type": "string"
+          },
+          "lunch": {
+            "title": "Lunch",
+            "type": "string"
+          },
+          "transportation": {
+            "title": "Transportation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "day",
+          "current_city",
+          "transportation",
+          "breakfast",
+          "attraction",
+          "attractions",
+          "lunch",
+          "dinner",
+          "accommodation"
+        ],
+        "title": "DayPlan",
+        "type": "object"
+      },
       "ErrorDetail": {
         "additionalProperties": false,
         "description": "An error response, for example for an unknown query_id.",
@@ -60,6 +192,168 @@
         "title": "Health",
         "type": "object"
       },
+      "ItemDetail": {
+        "additionalProperties": false,
+        "description": "One (query, seed) pair of a run: its plan, the evaluator's verdict and its usage.",
+        "properties": {
+          "commonsense_pass": {
+            "title": "Commonsense Pass",
+            "type": "boolean"
+          },
+          "constraints": {
+            "items": {
+              "$ref": "#/components/schemas/Constraint"
+            },
+            "title": "Constraints",
+            "type": "array"
+          },
+          "delivered": {
+            "title": "Delivered",
+            "type": "boolean"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "final_pass": {
+            "title": "Final Pass",
+            "type": "boolean"
+          },
+          "hard_pass": {
+            "title": "Hard Pass",
+            "type": "boolean"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DayPlan"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "query_id": {
+            "title": "Query Id",
+            "type": "string"
+          },
+          "raw_output": {
+            "title": "Raw Output",
+            "type": "string"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          }
+        },
+        "required": [
+          "query_id",
+          "seed",
+          "query",
+          "delivered",
+          "failure_reason",
+          "plan",
+          "constraints",
+          "commonsense_pass",
+          "hard_pass",
+          "final_pass",
+          "usage",
+          "raw_output"
+        ],
+        "title": "ItemDetail",
+        "type": "object"
+      },
+      "MetricSummary": {
+        "additionalProperties": false,
+        "description": "One official metric: a rate in [0, 1] per seed, their mean, and the sample SD (null with\nfewer than two seeds).",
+        "properties": {
+          "mean": {
+            "title": "Mean",
+            "type": "number"
+          },
+          "per_seed": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Per Seed",
+            "type": "object"
+          },
+          "sd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sd"
+          }
+        },
+        "required": [
+          "per_seed",
+          "mean",
+          "sd"
+        ],
+        "title": "MetricSummary",
+        "type": "object"
+      },
+      "ModelRef": {
+        "additionalProperties": false,
+        "properties": {
+          "digest": {
+            "title": "Digest",
+            "type": "string"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag",
+          "digest"
+        ],
+        "title": "ModelRef",
+        "type": "object"
+      },
+      "Progress": {
+        "additionalProperties": false,
+        "properties": {
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "done",
+          "total"
+        ],
+        "title": "Progress",
+        "type": "object"
+      },
       "QueryItem": {
         "additionalProperties": false,
         "description": "One validation query: the PlannerInput fields query_id and query only.",
@@ -96,6 +390,275 @@
           "items"
         ],
         "title": "QueryList",
+        "type": "object"
+      },
+      "RunAccepted": {
+        "additionalProperties": false,
+        "description": "The 202 response of POST /api/runs.",
+        "properties": {
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "queued",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "status"
+        ],
+        "title": "RunAccepted",
+        "type": "object"
+      },
+      "RunConflict": {
+        "additionalProperties": false,
+        "description": "The 409 response of POST /api/runs: a job is running, or ``runs/.model.lock`` is held.\n``active_run_id`` is this server's running job, or null when another process holds the lock\n(for example a CLI batch run).",
+        "properties": {
+          "active_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Run Id"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail",
+          "active_run_id"
+        ],
+        "title": "RunConflict",
+        "type": "object"
+      },
+      "RunDetail": {
+        "additionalProperties": false,
+        "description": "The response of GET /api/runs/{run_id}. ``item`` is set for a single run once its pair is\ndone; ``summary`` is set for a batch run.",
+        "properties": {
+          "config_hash": {
+            "title": "Config Hash",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "item": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ItemDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "enum": [
+              "batch",
+              "single"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "model": {
+            "$ref": "#/components/schemas/ModelRef"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "queued",
+                  "generating",
+                  "parsing",
+                  "evaluating",
+                  "done"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "interrupted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatchSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "run_id",
+          "kind",
+          "status",
+          "stage",
+          "created_at",
+          "finished_at",
+          "config_hash",
+          "model",
+          "prompt_version",
+          "error",
+          "item",
+          "summary"
+        ],
+        "title": "RunDetail",
+        "type": "object"
+      },
+      "RunRequest": {
+        "additionalProperties": false,
+        "description": "The body of POST /api/runs: one validation query and one seed.",
+        "properties": {
+          "query_id": {
+            "title": "Query Id",
+            "type": "string"
+          },
+          "seed": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query_id"
+        ],
+        "title": "RunRequest",
+        "type": "object"
+      },
+      "Usage": {
+        "additionalProperties": false,
+        "description": "Tokens and latency of one (query, seed) pair, summed over its planner calls. The\nserver-reported times are null when no call reported them.",
+        "properties": {
+          "generation_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation Ms"
+          },
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "load_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Load Ms"
+          },
+          "output_tokens": {
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "prefill_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prefill Ms"
+          },
+          "thinking_tokens": {
+            "title": "Thinking Tokens",
+            "type": "integer"
+          },
+          "total_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Ms"
+          },
+          "wall_ms": {
+            "title": "Wall Ms",
+            "type": "number"
+          }
+        },
+        "required": [
+          "input_tokens",
+          "output_tokens",
+          "thinking_tokens",
+          "load_ms",
+          "prefill_ms",
+          "generation_ms",
+          "total_ms",
+          "wall_ms"
+        ],
+        "title": "Usage",
         "type": "object"
       },
       "ValidationError": {
@@ -252,6 +815,215 @@
           }
         },
         "summary": "Get Query"
+      }
+    },
+    "/api/runs": {
+      "post": {
+        "description": "Start a single run of one validation query with one seed. One job runs at a time.",
+        "operationId": "start_run_api_runs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Unknown query_id"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunConflict"
+                }
+              }
+            },
+            "description": "A job is running, or runs/.model.lock is held"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The data is missing or invalid, or the run cannot start"
+          }
+        },
+        "summary": "Start Run"
+      }
+    },
+    "/api/runs/{run_id}": {
+      "get": {
+        "description": "One run: its status and stage, and a single run's plan, constraints and usage.",
+        "operationId": "get_run_api_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Unknown run_id"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The run log is corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The data is missing or invalid"
+          }
+        },
+        "summary": "Get Run"
+      }
+    },
+    "/api/runs/{run_id}/events": {
+      "get": {
+        "description": "Follow one run until it is finished; a finished run sends its two events and closes.",
+        "operationId": "get_run_events_api_runs__run_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Server-sent events: `snapshot` (RunDetail), `stage` ({stage}) on each change, then `done` (RunDetail) or `error` ({message}), and the stream closes. A `: ping` comment is sent every 15 s."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Unknown run_id"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The run log is corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The data is missing or invalid"
+          }
+        },
+        "summary": "Get Run Events"
       }
     }
   }

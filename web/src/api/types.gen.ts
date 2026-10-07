@@ -65,10 +65,128 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Run
+         * @description Start a single run of one validation query with one seed. One job runs at a time.
+         */
+        post: operations["start_run_api_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run
+         * @description One run: its status and stage, and a single run's plan, constraints and usage.
+         */
+        get: operations["get_run_api_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run Events
+         * @description Follow one run until it is finished; a finished run sends its two events and closes.
+         */
+        get: operations["get_run_events_api_runs__run_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * BatchSummary
+         * @description A batch run's progress and, once it is scored, its official metrics (empty until then).
+         */
+        BatchSummary: {
+            /** Metrics */
+            metrics: {
+                [key: string]: components["schemas"]["MetricSummary"];
+            };
+            progress: components["schemas"]["Progress"];
+        };
+        /**
+         * Constraint
+         * @description One evaluator check of a plan.
+         */
+        Constraint: {
+            /**
+             * Group
+             * @enum {string}
+             */
+            group: "commonsense" | "hard";
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Message */
+            message: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pass" | "fail" | "not_applicable" | "not_evaluated";
+        };
+        /**
+         * DayPlan
+         * @description One day of a plan. ``attractions`` is ``attraction`` split on ``;``, trimmed, with empty
+         *     strings and ``-`` removed, so the web client does no parsing.
+         */
+        DayPlan: {
+            /** Accommodation */
+            accommodation: string;
+            /** Attraction */
+            attraction: string;
+            /** Attractions */
+            attractions: string[];
+            /** Breakfast */
+            breakfast: string;
+            /** Current City */
+            current_city: string;
+            /** Day */
+            day: number;
+            /** Dinner */
+            dinner: string;
+            /** Lunch */
+            lunch: string;
+            /** Transportation */
+            transportation: string;
+        };
         /**
          * ErrorDetail
          * @description An error response, for example for an unknown query_id.
@@ -100,6 +218,64 @@ export interface components {
             status: "ok";
         };
         /**
+         * ItemDetail
+         * @description One (query, seed) pair of a run: its plan, the evaluator's verdict and its usage.
+         */
+        ItemDetail: {
+            /** Commonsense Pass */
+            commonsense_pass: boolean;
+            /** Constraints */
+            constraints: components["schemas"]["Constraint"][];
+            /** Delivered */
+            delivered: boolean;
+            /** Failure Reason */
+            failure_reason: string | null;
+            /** Final Pass */
+            final_pass: boolean;
+            /** Hard Pass */
+            hard_pass: boolean;
+            /** Plan */
+            plan: components["schemas"]["DayPlan"][] | null;
+            /** Query */
+            query: string;
+            /** Query Id */
+            query_id: string;
+            /** Raw Output */
+            raw_output: string;
+            /** Seed */
+            seed: number;
+            usage: components["schemas"]["Usage"];
+        };
+        /**
+         * MetricSummary
+         * @description One official metric: a rate in [0, 1] per seed, their mean, and the sample SD (null with
+         *     fewer than two seeds).
+         */
+        MetricSummary: {
+            /** Mean */
+            mean: number;
+            /** Per Seed */
+            per_seed: {
+                [key: string]: number;
+            };
+            /** Sd */
+            sd: number | null;
+        };
+        /** ModelRef */
+        ModelRef: {
+            /** Digest */
+            digest: string;
+            /** Tag */
+            tag: string;
+        };
+        /** Progress */
+        Progress: {
+            /** Done */
+            done: number;
+            /** Total */
+            total: number;
+        };
+        /**
          * QueryItem
          * @description One validation query: the PlannerInput fields query_id and query only.
          */
@@ -116,6 +292,104 @@ export interface components {
         QueryList: {
             /** Items */
             items: components["schemas"]["QueryItem"][];
+        };
+        /**
+         * RunAccepted
+         * @description The 202 response of POST /api/runs.
+         */
+        RunAccepted: {
+            /** Run Id */
+            run_id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "queued";
+        };
+        /**
+         * RunConflict
+         * @description The 409 response of POST /api/runs: a job is running, or ``runs/.model.lock`` is held.
+         *     ``active_run_id`` is this server's running job, or null when another process holds the lock
+         *     (for example a CLI batch run).
+         */
+        RunConflict: {
+            /** Active Run Id */
+            active_run_id: string | null;
+            /** Detail */
+            detail: string;
+        };
+        /**
+         * RunDetail
+         * @description The response of GET /api/runs/{run_id}. ``item`` is set for a single run once its pair is
+         *     done; ``summary`` is set for a batch run.
+         */
+        RunDetail: {
+            /** Config Hash */
+            config_hash: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Error */
+            error: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            item: components["schemas"]["ItemDetail"] | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "batch" | "single";
+            model: components["schemas"]["ModelRef"];
+            /** Prompt Version */
+            prompt_version: string;
+            /** Run Id */
+            run_id: string;
+            /** Stage */
+            stage: ("queued" | "generating" | "parsing" | "evaluating" | "done") | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "interrupted";
+            summary: components["schemas"]["BatchSummary"] | null;
+        };
+        /**
+         * RunRequest
+         * @description The body of POST /api/runs: one validation query and one seed.
+         */
+        RunRequest: {
+            /** Query Id */
+            query_id: string;
+            /**
+             * Seed
+             * @default 0
+             */
+            seed: number;
+        };
+        /**
+         * Usage
+         * @description Tokens and latency of one (query, seed) pair, summed over its planner calls. The
+         *     server-reported times are null when no call reported them.
+         */
+        Usage: {
+            /** Generation Ms */
+            generation_ms: number | null;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Load Ms */
+            load_ms: number | null;
+            /** Output Tokens */
+            output_tokens: number;
+            /** Prefill Ms */
+            prefill_ms: number | null;
+            /** Thinking Tokens */
+            thinking_tokens: number;
+            /** Total Ms */
+            total_ms: number | null;
+            /** Wall Ms */
+            wall_ms: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -224,6 +498,182 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description The data is missing or invalid */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    start_run_api_runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunAccepted"];
+                };
+            };
+            /** @description Unknown query_id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description A job is running, or runs/.model.lock is held */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunConflict"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description The data is missing or invalid, or the run cannot start */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    get_run_api_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDetail"];
+                };
+            };
+            /** @description Unknown run_id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description The run log is corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description The data is missing or invalid */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    get_run_events_api_runs__run_id__events_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server-sent events: `snapshot` (RunDetail), `stage` ({stage}) on each change, then `done` (RunDetail) or `error` ({message}), and the stream closes. A `: ping` comment is sent every 15 s. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            /** @description Unknown run_id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description The run log is corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
             /** @description The data is missing or invalid */
