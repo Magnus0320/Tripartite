@@ -14,34 +14,77 @@ Version 0.1 covers Phases 0 and 1:
 [`ARCHITECTURE.md`](ARCHITECTURE.md) is the build contract. Every design decision, pin and
 path owner is recorded there. Assumptions live in [`assumptions.md`](assumptions.md).
 
-## Status
-
-Milestone **M0 (foundation)** is in place:
-
-- the package skeleton;
-- the root files (this README, the Makefile, `pyproject.toml` and the CI workflow);
-- the run-log schema, with its writer and reader.
-
-The later milestones are listed in D9's build order in `ARCHITECTURE.md`, and each one fills
-in its own paths. Commands that belong to a later milestone either say "not available yet"
-or print `skipped: <path> not present yet`.
-
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/). uv installs the Python version pinned in `.python-version`
   and every Python dependency. Do not use conda or the system `pip`.
-- Later milestones also need Ollama (M3) and Node.js for `web/` (W1).
+- Node.js 24 LTS for `web/`. The exact version is in [`web/.nvmrc`](web/.nvmrc).
 
-## Quickstart
+The development loop below needs no model, no dataset and no network after setup.
+
+## Development loop
+
+### 1. Set up
 
 ```bash
-make setup   # uv sync; the evalenv and web steps are skipped until those projects exist
-make lint    # ruff check, ruff format --check, mypy src, lint-imports
-make test    # pytest -m "not local"
+make setup
 ```
 
-Every Makefile target is listed in `ARCHITECTURE.md` D9. The CLI entry point is
-`uv run tripartite --help`.
+This installs three things: the Python environment (`uv sync --locked`), the evaluator's own
+environment in `evalenv/`, and the web dependencies (`npm ci` in `web/`).
+
+### 2. Run the API in fake mode
+
+Fake mode replaces the model and the evaluator with deterministic stand-ins. It runs only on
+synthetic data, so first write the scoreable synthetic set to a directory outside the
+repository:
+
+```bash
+export TRIPARTITE_DATA_DIR="$(uv run tripartite data synthetic --scoreable --out ~/.cache/tripartite/synthetic-scoreable)"
+```
+
+Then start the API in the same shell:
+
+```bash
+TRIPARTITE_LLM=fake TRIPARTITE_EVAL_BRIDGE=fake make api
+```
+
+The API listens on `127.0.0.1:8000`.
+
+### 3. Run the web UI
+
+In a second terminal:
+
+```bash
+make web
+```
+
+Open the address that Vite prints. The dev server proxies `/api` to the API from step 2.
+
+### 4. Check your changes
+
+```bash
+make lint
+```
+
+```bash
+make test
+```
+
+`make lint` runs ruff, mypy and the import contracts. `make test` runs every test that needs
+no model (`pytest -m "not local"`).
+
+## Real-model runs
+
+Runs with the real model and the real dataset (`make data`, `make serve-model`, `make doctor`,
+`make baseline`, `make eval`, `make reproduce-check`) are described in `ARCHITECTURE.md`: D4 for
+the model server, D7 for run directories and resuming, and D9 for every Makefile target and
+the order of operations. Follow that document; this README does not repeat it.
+
+To browse finished batch runs in MLflow, sync one with `make mlflow-sync RUN=<run_id>` and then
+run `make mlflow-ui`. MLflow is only an index; `runs/<run_id>/` is the record (D7).
+
+## Run-log schema
 
 The JSON Schema of the run-log events is committed at `src/tripartite/runlog/schema.json`.
 After changing `src/tripartite/runlog/schema.py`, regenerate it:

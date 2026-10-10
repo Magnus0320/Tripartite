@@ -1,6 +1,8 @@
 """Representative payloads and run-directory files (D7), shared by the runlog tests."""
 
+import subprocess
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from tripartite.runlog.schema import (
@@ -35,6 +37,7 @@ from tripartite.runlog.schema import (
     TokenCounts,
     TokenStats,
 )
+from tripartite.runlog.writer import RunLogWriter
 
 SHA = "ab" * 32
 RUN_ID = "20260923T120000Z-batch-abababab-1a2b"
@@ -381,3 +384,82 @@ def metrics(**overrides: Any) -> Metrics:
         "latency_ms": LatencyStats(wall=stats, load=empty, prefill=stats, generation=stats),
     }
     return Metrics(**(fields | overrides))
+
+
+# --- a whole run directory, and the git history its commit lives in (M6) ----------------------
+
+GENERATION = {"num_predict": 4096, "temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0}
+ARCHITECTURE_LINE = "ARCHITECTURE.md · v0.12 · 2026-10-07"
+NEVER_SYNCED = ("events.jsonl", "plans_seed0.jsonl", "per_plan_eval_seed0.jsonl", "blobs")
+"""Run-directory entries that MLflow must never receive (D7 §MLflow)."""
+
+
+def git(repo: Path, *args: str) -> str:
+    identity = ["-c", "user.name=test", "-c", "user.email=test@example.invalid"]
+    done = subprocess.run(
+        ["git", *identity, *args], cwd=repo, check=True, capture_output=True, text=True
+    )
+    return done.stdout.strip()
+
+
+def write_git_repo(repo: Path, first_line: str | None = ARCHITECTURE_LINE) -> str:
+    """A throwaway repository with one commit; return its id.
+
+    The commit holds ``ARCHITECTURE.md`` starting with ``first_line``, or no such file for None.
+    """
+    repo.mkdir(parents=True, exist_ok=True)
+    git(repo, "init", "--quiet")
+    name = "ARCHITECTURE.md" if first_line is not None else "README.md"
+    (repo / name).write_text(f"{first_line}\n\n# Changelog\n", encoding="utf-8")
+    git(repo, "add", name)
+    git(repo, "commit", "--quiet", "--no-gpg-sign", "-m", "architecture")
+    return git(repo, "rev-parse", "HEAD")
+
+
+def write_run_dir(
+    runs_dir: Path,
+    *,
+    run_id: str = RUN_ID,
+    git_commit: str = "0" * 40,
+    num_ctxs: tuple[int, ...] = (32768,),
+    **metrics_overrides: Any,
+) -> Path:
+    """Write a succeeded run as D7 lays it out, with files that are never synced, and return it."""
+    run_dir = runs_dir / run_id
+    (run_dir / "blobs").mkdir(parents=True)
+    start = run_start()
+    start = start.model_copy(
+        update={
+            "kind": "single" if "-single-" in run_id else "batch",
+            "config": {**start.config, "generation": GENERATION},
+            "env": start.env.model_copy(update={"git_commit": git_commit}),
+        }
+    )
+    summary = metrics(run_id=run_id, kind=start.kind, **metrics_overrides)
+    files = {
+        "manifest.json": manifest(
+            run_start=start,
+            status="succeeded",
+            stage="done",
+            finished_at=T0,
+            metrics_path="metrics.json",
+        ),
+        "metrics.json": summary,
+        **{
+            f"metrics_seed{seed}.json": metrics_seed(run_id=run_id, seed=seed)
+            for seed in summary.seeds
+        },
+    }
+    for name, model in files.items():
+        (run_dir / name).write_text(model.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    with RunLogWriter(run_dir / "events.jsonl", run_id, clock=fixed_clock) as writer:
+        writer.write(start)
+        for num_ctx in num_ctxs:
+            call = llm_call()
+            request = call.request.model_copy(update={"num_ctx": num_ctx})
+            writer.write(call.model_copy(update={"request": request}))
+        writer.write(run_end())
+    (run_dir / "plans_seed0.jsonl").write_text('{"idx": 1, "query": "q", "plan": []}\n')
+    (run_dir / "per_plan_eval_seed0.jsonl").write_text('{"idx": 1}\n')
+    (run_dir / "blobs" / f"{SHA}.txt").write_text("a rendered prompt\n")
+    return run_dir

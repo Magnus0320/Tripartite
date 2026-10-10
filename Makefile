@@ -104,5 +104,6 @@ e2e-local:
 mlflow-sync:
 	$(TRIPARTITE) log mlflow-sync --run $(RUN)
 
+# MLflow 3 refuses a file store unless MLFLOW_ALLOW_FILE_STORE=true (D7 §MLflow keeps ./mlruns).
 mlflow-ui:
-	uv run mlflow ui --backend-store-uri ./mlruns
+	MLFLOW_ALLOW_FILE_STORE=true uv run mlflow ui --backend-store-uri ./mlruns
