@@ -18,6 +18,9 @@ from tripartite.runlog.schema import (
     SCHEMA_JSON_PATH,
     Payload,
     RetrievalEvent,
+    RunManifest,
+    RunStart,
+    RunStartEvent,
     new_run_id,
     render_json_schema,
     validate_run_id,
@@ -119,3 +122,65 @@ def test_sha256_fields_are_checked() -> None:
     fields["config_hash"] = "not-a-sha"
     with pytest.raises(ValidationError):
         EVENT_ADAPTER.validate_python({**_envelope(), **fields})
+
+
+# --- FU-30: run_start.allow_dirty -------------------------------------------------------------
+
+
+def _run_start_line(**extra: Any) -> str:
+    """A ``run_start`` line as the pipeline wrote it before the field was declared."""
+    event = EVENT_ADAPTER.validate_python({**_envelope(), **samples.run_start().model_dump()})
+    fields = json.loads(event.model_dump_json())
+    assert "allow_dirty" not in fields
+    return json.dumps(fields | extra)
+
+
+def test_a_run_start_without_allow_dirty_still_validates_and_reads_false() -> None:
+    event = EVENT_ADAPTER.validate_json(_run_start_line())
+
+    assert isinstance(event, RunStartEvent)
+    assert event.allow_dirty is False
+
+
+def test_a_manifest_without_allow_dirty_still_validates_and_reads_false() -> None:
+    text = samples.manifest().model_dump_json()
+    assert "allow_dirty" not in text
+
+    assert RunManifest.model_validate_json(text).run_start.allow_dirty is False
+
+
+def test_allow_dirty_true_round_trips_in_events_and_manifests() -> None:
+    event = EVENT_ADAPTER.validate_json(_run_start_line(allow_dirty=True))
+    assert isinstance(event, RunStartEvent)
+    assert event.allow_dirty is True
+    assert json.loads(event.model_dump_json())["allow_dirty"] is True
+
+    start = samples.run_start().model_copy(update={"allow_dirty": True})
+    manifest = samples.manifest(run_start=start)
+    stored = json.loads(manifest.model_dump_json())
+    assert stored["run_start"]["allow_dirty"] is True
+    assert RunManifest.model_validate(stored) == manifest
+
+
+@pytest.mark.parametrize("mode", ["python", "json"])
+def test_allow_dirty_false_is_never_written(mode: str) -> None:
+    """Files keep their bytes: the key appears only when the flag was used (D7 §Resume)."""
+    start = RunStart(**(samples.run_start().model_dump() | {"allow_dirty": False}))
+
+    assert start.allow_dirty is False
+    assert "allow_dirty" not in start.model_dump(mode=mode)
+    assert "allow_dirty" not in samples.manifest(run_start=start).model_dump(mode=mode)["run_start"]
+
+
+def test_allow_dirty_must_be_a_boolean() -> None:
+    with pytest.raises(ValidationError):
+        EVENT_ADAPTER.validate_json(_run_start_line(allow_dirty="sometimes"))
+
+
+def test_the_json_schema_declares_allow_dirty_as_optional() -> None:
+    schema = json.loads(render_json_schema())
+    for name in ("RunStart", "RunStartEvent"):
+        definition = schema["$defs"][name]
+        assert definition["properties"]["allow_dirty"]["type"] == "boolean"
+        assert definition["properties"]["allow_dirty"]["default"] is False
+        assert "allow_dirty" not in definition["required"]

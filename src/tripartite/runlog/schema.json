@@ -1548,6 +1548,12 @@
           "title": "Agents",
           "type": "array"
         },
+        "allow_dirty": {
+          "default": false,
+          "description": "True when --allow-dirty was passed in this or an earlier session of the run. Written only when true; a run_start without it means false (D7 §Resume, FU-30).",
+          "title": "Allow Dirty",
+          "type": "boolean"
+        },
         "config": {
           "additionalProperties": true,
           "title": "Config",
@@ -1679,6 +1685,12 @@
           },
           "title": "Agents",
           "type": "array"
+        },
+        "allow_dirty": {
+          "default": false,
+          "description": "True when --allow-dirty was passed in this or an earlier session of the run. Written only when true; a run_start without it means false (D7 §Resume, FU-30).",
+          "title": "Allow Dirty",
+          "type": "boolean"
         },
         "config": {
           "additionalProperties": true,

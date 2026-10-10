@@ -42,6 +42,7 @@ from pydantic import (
     StringConstraints,
     TypeAdapter,
     field_serializer,
+    model_serializer,
     model_validator,
 )
 
@@ -245,6 +246,20 @@ class RunStart(_Model):
     env: EnvInfo
     agents: list[AgentInfo]
     resumed_from: RunId | None
+    allow_dirty: bool = Field(
+        default=False,
+        description=(
+            "True when --allow-dirty was passed in this or an earlier session of the run. "
+            "Written only when true; a run_start without it means false (D7 §Resume, FU-30)."
+        ),
+    )
+
+    @model_serializer(mode="wrap")
+    def _allow_dirty_only_when_true(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not self.allow_dirty:
+            data.pop("allow_dirty", None)
+        return data
 
 
 class LlmCall(_Model):
