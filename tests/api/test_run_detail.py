@@ -1,15 +1,20 @@
 """``GET /api/runs/{run_id}``: every D8 field, filled from the run directory (F2)."""
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from tests.api.helpers import (
+    LEAK_FREE_ERROR,
+    NO_VALIDATION_CSV,
     RICH_PLAN,
     Gate,
     GatedClient,
+    PathLeakingBridge,
+    assert_no_absolute_path,
     responding,
     run_batch,
     run_to_end,
@@ -301,6 +306,23 @@ def test_a_failed_run_has_its_error_and_no_item(
     assert again["status"] == "failed"
 
 
+def test_the_error_of_a_failed_run_has_no_absolute_path(
+    settings: ApiSettings, synthetic_data: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bridge = PathLeakingBridge(synthetic_data, tmp_path)
+    _with(settings, monkeypatch, bridge=bridge)
+    with TestClient(app) as client:
+        run_id = run_to_end(client)["run_id"]
+        response = client.get(f"/api/runs/{run_id}")
+
+    assert response.json()["status"] == "failed"
+    assert response.json()["error"] == LEAK_FREE_ERROR
+    assert_no_absolute_path(response.text, tmp_path)
+    kept = read_manifest(settings.runs_dir / run_id).error
+    assert kept is not None
+    assert bridge.message in kept.message  # the full text stays on disk
+
+
 def test_a_running_run_has_no_item_yet(
     settings: ApiSettings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -371,15 +393,18 @@ def test_an_unknown_run_id_is_404(client: TestClient, settings: ApiSettings, run
 
 
 def test_a_run_whose_query_text_cannot_be_read_is_503(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     run_id = run_to_end(client)["run_id"]
-    monkeypatch.setenv("TRIPARTITE_DATA_DIR", str(tmp_path_factory.mktemp("empty")))
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setenv("TRIPARTITE_DATA_DIR", str(empty))
 
     response = client.get(f"/api/runs/{run_id}")
 
     assert response.status_code == 503
-    assert set(response.json()) == {"detail"}
+    assert response.json() == {"detail": NO_VALIDATION_CSV}
+    assert_no_absolute_path(response.text, tmp_path)
 
 
 def test_no_evaluator_only_field_is_served(client: TestClient) -> None:
@@ -392,7 +417,7 @@ def test_no_evaluator_only_field_is_served(client: TestClient) -> None:
 
 
 def test_a_corrupt_log_of_a_succeeded_run_is_500_with_the_readers_message(
-    client: TestClient, settings: ApiSettings
+    client: TestClient, settings: ApiSettings, tmp_path: Path
 ) -> None:
     run_id = run_to_end(client)["run_id"]
     events = settings.runs_dir / run_id / "events.jsonl"
@@ -403,5 +428,8 @@ def test_a_corrupt_log_of_a_succeeded_run_is_500_with_the_readers_message(
     response = client.get(f"/api/runs/{run_id}")
 
     assert response.status_code == 500
-    assert "truncated line" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert detail.startswith("the run log is corrupt: events.jsonl:")
+    assert "truncated line" in detail
+    assert_no_absolute_path(response.text, tmp_path)
     assert events.read_bytes() == log

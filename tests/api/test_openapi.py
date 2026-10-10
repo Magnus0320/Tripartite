@@ -107,6 +107,8 @@ D8_SCHEMAS = {
     "RunRequest": {"query_id", "seed"},
     "RunAccepted": {"run_id", "status"},
     "RunConflict": {"detail", "active_run_id"},
+    "StageEvent": {"stage"},
+    "StreamError": {"message"},
 }
 
 
@@ -140,6 +142,21 @@ def test_the_closed_sets_are_d7s_and_d8s() -> None:
     assert constraint["group"]["enum"] == ["commonsense", "hard"]
     assert constraint["status"]["enum"] == ["pass", "fail", "not_applicable", "not_evaluated"]
     assert schemas["RunAccepted"]["properties"]["status"]["const"] == "queued"
+
+
+def test_the_event_stream_payloads_are_named_schemas() -> None:
+    schemas = json.loads(_export())["components"]["schemas"]
+
+    assert schemas["StageEvent"]["properties"]["stage"]["enum"] == [
+        "queued",
+        "generating",
+        "parsing",
+        "evaluating",
+        "done",
+    ]
+    assert schemas["StreamError"]["properties"]["message"]["type"] == "string"
+    for name in ("StageEvent", "StreamError"):
+        assert "$defs" not in schemas[name], name
 
 
 def test_the_run_routes_document_their_responses() -> None:

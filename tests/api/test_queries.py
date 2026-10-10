@@ -6,7 +6,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.api.helpers import NO_VALIDATION_CSV, assert_no_absolute_path
 from tests.fixtures import synthetic_data
+from tripartite.api.messages import public_message
 from tripartite.api.schemas import QueryItem
 from tripartite.data.manifest import VALIDATION_REF_INFO, DataError
 from tripartite.data.planner_inputs import PlannerInput, load_planner_inputs
@@ -60,7 +62,7 @@ def test_an_unknown_query_id_is_404(client: TestClient, query_id: str) -> None:
 
 
 @pytest.mark.parametrize("path", ["/api/queries", "/api/queries/val-001"])
-def test_an_empty_data_dir_is_503_with_the_loaders_message(
+def test_an_empty_data_dir_is_503_with_the_loaders_message_and_no_absolute_path(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str
 ) -> None:
     empty = tmp_path / "empty"
@@ -72,12 +74,13 @@ def test_an_empty_data_dir_is_503_with_the_loaders_message(
     response = client.get(path)
 
     assert response.status_code == 503
-    assert response.json() == {"detail": str(raised.value)}
-    assert str(empty / "raw" / "validation.csv") in response.json()["detail"]
+    assert str(empty / "raw" / "validation.csv") in str(raised.value)
+    assert response.json() == {"detail": NO_VALIDATION_CSV}
+    assert_no_absolute_path(response.text, tmp_path)
 
 
 @pytest.mark.parametrize("path", ["/api/queries", "/api/queries/val-001"])
-def test_a_data_error_is_503_with_its_message(
+def test_a_data_error_is_503_with_its_message_and_no_absolute_path(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str
 ) -> None:
     missing = tmp_path / "missing"
@@ -88,13 +91,16 @@ def test_a_data_error_is_503_with_its_message(
     response = client.get(path)
 
     assert response.status_code == 503
-    assert response.json() == {"detail": str(raised.value)}
-    assert "TRIPARTITE_DATA_DIR" in response.json()["detail"]
+    assert str(missing) in str(raised.value)
+    assert response.json() == {
+        "detail": "TRIPARTITE_DATA_DIR must be an existing directory, got 'missing'"
+    }
+    assert_no_absolute_path(response.text, tmp_path)
 
 
 @pytest.mark.parametrize("path", ["/api/queries", "/api/queries/val-001"])
 def test_invalid_data_is_503_with_the_loaders_message(
-    client: TestClient, synthetic_data: Path, path: str
+    client: TestClient, synthetic_data: Path, tmp_path: Path, path: str
 ) -> None:
     ref_info = synthetic_data / "raw" / VALIDATION_REF_INFO
     lines = ref_info.read_bytes().split(b"\n")
@@ -105,7 +111,9 @@ def test_invalid_data_is_503_with_the_loaders_message(
     response = client.get(path)
 
     assert response.status_code == 503
-    assert response.json() == {"detail": str(raised.value)}
+    assert response.json() == {"detail": public_message(str(raised.value))}
+    assert "has 100 lines" in response.json()["detail"]
+    assert_no_absolute_path(response.text, tmp_path)
 
 
 def test_an_unknown_query_id_is_still_404_not_503(client: TestClient) -> None:

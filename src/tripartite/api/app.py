@@ -19,13 +19,13 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from importlib.metadata import version
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI
 
 from tripartite.api import routes_queries, routes_runs
 from tripartite.api.jobs import ApiSettings, JobRunner, sweep_stale_runs
-from tripartite.api.schemas import Health
+from tripartite.api.schemas import Health, StageEvent, StreamError
 from tripartite.config import STACK_PATH
 from tripartite.evaluation.readiness import evaluator_ready
 from tripartite.llm.doctor import model_digest_ok, model_reachable
@@ -39,7 +39,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="Tripartite API", version=version("tripartite"), lifespan=lifespan)
+class _Api(FastAPI):
+    """FastAPI, with the two models of the event stream in the contract. No route returns them
+    as a JSON body, so FastAPI would leave them out of ``components/schemas`` (D8, FU-34)."""
+
+    def openapi(self) -> dict[str, Any]:
+        if self.openapi_schema is None:
+            schemas = super().openapi().setdefault("components", {}).setdefault("schemas", {})
+            for model in (StageEvent, StreamError):
+                schemas[model.__name__] = model.model_json_schema(
+                    ref_template="#/components/schemas/{model}"
+                )
+        return super().openapi()
+
+
+app = _Api(title="Tripartite API", version=version("tripartite"), lifespan=lifespan)
 app.state.settings = ApiSettings()
 app.include_router(routes_queries.router)
 app.include_router(routes_runs.router)

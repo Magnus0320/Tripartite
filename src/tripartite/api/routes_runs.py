@@ -10,7 +10,8 @@ start leaves nothing on disk.
 ``GET /api/runs/{run_id}`` and its ``/events`` stream read the run directory (``history.py``,
 ``sse.py``). Both answer 404 for an id that is malformed or has no ``manifest.json``, 503 when
 the run's query text cannot be read from the data, and 500 with the reader's message when the
-run log is corrupt (D7: the API never repairs one).
+run log is corrupt (D7: the API never repairs one). No ``detail`` holds an absolute path
+(``messages.py``, FU-35).
 """
 
 import asyncio
@@ -30,6 +31,7 @@ from tripartite.api.history import (
     load_run_detail,
 )
 from tripartite.api.jobs import ApiSettings, JobActiveError, JobRunner
+from tripartite.api.messages import public_message
 from tripartite.api.schemas import ErrorDetail, RunAccepted, RunConflict, RunDetail, RunRequest
 from tripartite.api.sse import event_stream, run_events
 from tripartite.config import ConfigError
@@ -70,11 +72,11 @@ def _query_exists(query_id: str) -> None:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc.args[0])) from None
     except routes_queries.DATA_ERRORS as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from None
+        raise HTTPException(status_code=503, detail=public_message(str(exc))) from None
 
 
 def _conflict(detail: str, active_run_id: str | None) -> JSONResponse:
-    body = RunConflict(detail=detail, active_run_id=active_run_id)
+    body = RunConflict(detail=public_message(detail), active_run_id=active_run_id)
     return JSONResponse(status_code=409, content=body.model_dump())
 
 
@@ -105,7 +107,7 @@ async def start_run(body: RunRequest, request: Request) -> RunAccepted | JSONRes
     except ModelLockHeldError as exc:
         return _conflict(str(exc), None)
     except CANNOT_START as exc:
-        detail = f"the run cannot start: {type(exc).__name__}: {exc}"
+        detail = public_message(f"the run cannot start: {type(exc).__name__}: {exc}")
         raise HTTPException(status_code=503, detail=detail) from None
     return RunAccepted(run_id=run_id, status="queued")
 
@@ -116,9 +118,10 @@ def _detail(settings: ApiSettings, run_id: str) -> RunDetail:
     except RunNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from None
     except QueryUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from None
+        raise HTTPException(status_code=503, detail=public_message(str(exc))) from None
     except RunLogError as exc:
-        raise HTTPException(status_code=500, detail=f"the run log is corrupt: {exc}") from None
+        detail = public_message(f"the run log is corrupt: {exc}")
+        raise HTTPException(status_code=500, detail=detail) from None
 
 
 @router.get("/api/runs/{run_id}", responses={**UNKNOWN_RUN, **QUERY_UNAVAILABLE})
@@ -133,8 +136,8 @@ def get_run(run_id: str, request: Request) -> RunDetail:
     responses={
         200: {
             "description": (
-                "Server-sent events: `snapshot` (RunDetail), `stage` ({stage}) on each change, "
-                "then `done` (RunDetail) or `error` ({message}), and the stream closes. "
+                "Server-sent events: `snapshot` (RunDetail), `stage` (StageEvent) on each "
+                "change, then `done` (RunDetail) or `error` (StreamError), and the stream closes. "
                 "A `: ping` comment is sent every 15 s."
             ),
             "content": {"text/event-stream": {"schema": {"type": "string"}}},

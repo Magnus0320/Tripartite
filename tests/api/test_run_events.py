@@ -4,18 +4,24 @@ import asyncio
 import json
 import threading
 from functools import partial
+from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sse_starlette import ServerSentEvent
 
 from tests.api.helpers import (
+    LEAK_FREE_ERROR,
     STAGES,
     Gate,
     GatedBridge,
     GatedClient,
+    PathLeakingBridge,
+    assert_no_absolute_path,
     parse_sse,
+    run_batch,
     run_to_end,
     start,
     with_deps,
@@ -24,15 +30,41 @@ from tests.api.test_run_detail import _Broken
 from tripartite.api.app import app
 from tripartite.api.history import find_run_dir, load_run_detail
 from tripartite.api.jobs import SSE_PING_S, ApiSettings, JobRunner
+from tripartite.api.schemas import StageEvent, StreamError
 from tripartite.api.sse import ping, run_events
 from tripartite.pipeline.run import read_manifest
+
+
+def _check_payload(name: str | None, data: Any) -> None:
+    """Every ``stage`` and ``error`` payload a stream sends is its contract model (FU-34)."""
+    if name == "stage":
+        StageEvent.model_validate_json(data)
+    elif name == "error":
+        StreamError.model_validate_json(data)
 
 
 def _stream(client: TestClient, run_id: str) -> Any:
     response = client.get(f"/api/runs/{run_id}/events")
     assert response.status_code == 200, response.text
     assert response.headers["content-type"].startswith("text/event-stream")
-    return parse_sse(response.text)
+    stream = parse_sse(response.text)
+    for name, data in stream.events:
+        _check_payload(name, data)
+    return stream
+
+
+@pytest.mark.parametrize(
+    ("name", "data"),
+    [
+        ("stage", '{"stage": "started"}'),
+        ("stage", '{"stage": "parsing", "extra": 1}'),
+        ("error", '{"message": null}'),
+        ("error", '{"detail": "x"}'),
+    ],
+)
+def test_the_payload_check_refuses_what_the_contract_does_not_allow(name: str, data: str) -> None:
+    with pytest.raises(ValidationError):
+        _check_payload(name, data)
 
 
 def _in_d8_order(stages: list[str]) -> bool:
@@ -64,6 +96,43 @@ def test_a_finished_failed_run_sends_snapshot_then_error(
     assert json.loads(stream.events[1][1]) == {"message": detail["error"]}
 
 
+def test_the_error_event_has_no_absolute_path(
+    settings: ApiSettings, synthetic_data: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bridge = PathLeakingBridge(synthetic_data, tmp_path)
+    monkeypatch.setattr(app.state, "settings", with_deps(settings, bridge=bridge))
+    with TestClient(app) as client:
+        run_id = run_to_end(client)["run_id"]
+        response = client.get(f"/api/runs/{run_id}/events")
+
+    stream = parse_sse(response.text)
+    assert [name for name, _ in stream.events] == ["snapshot", "error"]
+    assert json.loads(stream.events[1][1]) == {"message": LEAK_FREE_ERROR}
+    assert_no_absolute_path(response.text, tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_an_error_message_is_cleaned_by_the_stream_itself(
+    settings: ApiSettings, tmp_path: Path
+) -> None:
+    run_id = run_batch(settings, ["val-001"], [0])
+    detail = load_run_detail(settings.runs_dir, run_id)
+    leaking = detail.model_copy(
+        update={"status": "failed", "error": f"OSError: cannot read {tmp_path}/x/y.txt"}
+    )
+    stream = run_events(
+        leaking,
+        read_manifest=partial(read_manifest, settings.runs_dir / run_id),
+        load_detail=lambda: leaking,
+        poll_s=0,
+    )
+
+    events = [event async for event in stream]
+
+    assert events[-1].event == "error"
+    assert json.loads(events[-1].data) == {"message": "OSError: cannot read y.txt"}
+
+
 def test_following_a_run_from_its_start_ends_with_done(client: TestClient) -> None:
     run_id = start(client, "val-003")
 
@@ -91,6 +160,7 @@ async def _follow(settings: ApiSettings, run_id: str, seen: list[ServerSentEvent
         poll_s=0.002,
     )
     async for event in events:
+        _check_payload(event.event, event.data)
         seen.append(event)
 
 

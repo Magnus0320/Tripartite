@@ -20,6 +20,7 @@ import csv
 from pathlib import Path
 from typing import Final
 
+from tripartite.api.messages import public_message
 from tripartite.api.schemas import (
     BatchSummary,
     Constraint,
@@ -77,10 +78,11 @@ def find_run_dir(runs_dir: Path, run_id: str) -> Path:
 
 
 def error_text(manifest: RunManifest) -> str | None:
-    """``RunDetail.error``: ``"<type>: <message>"``, or None."""
+    """``RunDetail.error``: ``"<type>: <message>"`` without absolute paths, or None. The
+    manifest keeps the full text, so it is not logged again on every read."""
     if manifest.error is None:
         return None
-    return f"{manifest.error.type}: {manifest.error.message}"
+    return public_message(f"{manifest.error.type}: {manifest.error.message}", log=False)
 
 
 def attractions(attraction: str) -> list[str]:
@@ -111,7 +113,7 @@ def _query_text(query_id: str) -> str:
         return get_planner_input(query_id).query
     except DATA_ERRORS as exc:
         message = exc.args[0] if isinstance(exc, KeyError) and exc.args else exc
-        raise QueryUnavailableError(str(message)) from None
+        raise QueryUnavailableError(public_message(str(message))) from None
 
 
 def _total_ms(calls: list[LlmCallEvent]) -> float | None:
