@@ -1,5 +1,6 @@
 """``POST /api/runs`` and the job runner (D8, F2): one job at a time, through the pipeline."""
 
+import dataclasses
 import json
 import re
 from pathlib import Path
@@ -8,8 +9,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.api.helpers import (
+    NO_VALIDATION_CSV,
     Gate,
     GatedClient,
+    assert_no_absolute_path,
     run_to_end,
     start,
     wait_finished,
@@ -17,7 +20,8 @@ from tests.api.helpers import (
 )
 from tripartite.api.app import app
 from tripartite.api.jobs import ApiSettings, JobRunner, single_config
-from tripartite.config import SINGLE_CONFIG_PATH, load_run_config
+from tripartite.config import SINGLE_CONFIG_PATH, ConfigError, load_run_config
+from tripartite.data.manifest import DATA_DIR
 from tripartite.llm.errors import FakeModeRealDataError
 from tripartite.pipeline.lock import acquire_model_lock
 from tripartite.pipeline.run import read_manifest
@@ -106,7 +110,8 @@ def test_missing_data_is_503(
     response = client.post("/api/runs", json={"query_id": "val-001"})
 
     assert response.status_code == 503
-    assert set(response.json()) == {"detail"}
+    assert response.json() == {"detail": NO_VALIDATION_CSV}
+    assert_no_absolute_path(response.text, tmp_path)
     assert _run_dirs(settings) == []
 
 
@@ -158,10 +163,53 @@ def test_without_a_calibration_the_real_model_path_is_503_and_nothing_exists(
         response = client.post("/api/runs", json={"query_id": "val-001"})
 
         assert response.status_code == 503
-        assert "CalibrationMissingError" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert detail.startswith("the run cannot start: CalibrationMissingError: ")
+        assert "no-calibration.json" in detail
+        assert_no_absolute_path(response.text, tmp_path)
         assert client.app.state.jobs.active_run_id is None  # type: ignore[attr-defined]
     assert _run_dirs(settings) == []
     assert _lock_is_free(settings)
+
+
+def test_a_config_that_cannot_be_read_is_503_with_its_type_and_no_absolute_path(
+    settings: ApiSettings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    missing = tmp_path / "configs" / "no-single.yaml"
+    changed = dataclasses.replace(settings, single_config_path=missing)
+    monkeypatch.setattr(app.state, "settings", changed)
+    with pytest.raises(ConfigError) as raised:
+        single_config(missing, "val-001", 0)
+    with TestClient(app) as client:
+        response = client.post("/api/runs", json={"query_id": "val-001"})
+
+    assert str(missing) in str(raised.value)
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail.startswith("the run cannot start: ConfigError: ")
+    assert "no-single.yaml" in detail
+    assert_no_absolute_path(response.text, tmp_path)
+    assert _run_dirs(settings) == []
+    assert _lock_is_free(settings)
+
+
+def test_a_fake_mode_refusal_is_503_with_its_type_and_no_absolute_path(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, settings: ApiSettings
+) -> None:
+    def refuse() -> None:
+        raise FakeModeRealDataError(f"TRIPARTITE_DATA_DIR points at {DATA_DIR}; set it elsewhere")
+
+    monkeypatch.setattr("tripartite.pipeline.run.require_synthetic_data_root", refuse)
+
+    response = client.post("/api/runs", json={"query_id": "val-001"})
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "the run cannot start: FakeModeRealDataError: "
+        "TRIPARTITE_DATA_DIR points at data; set it elsewhere"
+    }
+    assert_no_absolute_path(response.text, tmp_path)
+    assert _run_dirs(settings) == []
 
 
 @pytest.mark.asyncio

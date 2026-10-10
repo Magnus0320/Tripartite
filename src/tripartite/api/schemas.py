@@ -82,6 +82,18 @@ class RunConflict(_Response):
     active_run_id: str | None
 
 
+class StageEvent(_Response):
+    """The data of a ``stage`` event of GET /api/runs/{run_id}/events: the run's new stage."""
+
+    stage: RunStage
+
+
+class StreamError(_Response):
+    """The data of the ``error`` event that ends the stream of a failed or interrupted run."""
+
+    message: str
+
+
 class DayPlan(_Response):
     """One day of a plan. ``attractions`` is ``attraction`` split on ``;``, trimmed, with empty
     strings and ``-`` removed, so the web client does no parsing."""

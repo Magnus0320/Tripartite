@@ -10,9 +10,14 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from tripartite.api.jobs import ApiSettings, single_config
-from tripartite.config import SINGLE_CONFIG_PATH, RunConfig, load_run_config
+from tripartite.config import REPO_ROOT, SINGLE_CONFIG_PATH, RunConfig, load_run_config
 from tripartite.evaluation.aggregate import OfficialScores
-from tripartite.evaluation.bridge_client import EvaluatorBridge, FakeBridge, Plan
+from tripartite.evaluation.bridge_client import (
+    EvaluationError,
+    EvaluatorBridge,
+    FakeBridge,
+    Plan,
+)
 from tripartite.evaluation.constraints import PerPlanResult
 from tripartite.evaluation.records import EvalRecord
 from tripartite.llm.fake_client import FakeClient, FakeTokenizer
@@ -93,6 +98,40 @@ class GatedBridge:
 
     def close(self) -> None:
         self._inner.close()
+
+
+NO_VALIDATION_CSV = "[Errno 2] No such file or directory: 'raw/validation.csv'"
+"""What the loader says about an empty data root, as a response body gives it (FU-35)."""
+
+
+def assert_no_absolute_path(body: str, tmp_path: Path) -> None:
+    """FU-35: a response body names neither the temporary data root and ``runs/`` nor the
+    repository by an absolute path."""
+    for root in (tmp_path, tmp_path.resolve(), REPO_ROOT):
+        assert str(root) not in body, body
+
+
+class PathLeakingBridge(FakeBridge):
+    """A bridge whose ``per_plan`` fails with absolute paths in its message: one under the data
+    root, one under the repository and one elsewhere under ``tmp_path``."""
+
+    def __init__(self, data_root: Path, tmp_path: Path) -> None:
+        super().__init__()
+        self.message = (
+            f"[Errno 2] No such file or directory: '{tmp_path / 'db files' / 'flights.csv'}'; "
+            f"read {data_root / 'raw' / 'validation.csv'} "
+            f"from {REPO_ROOT / 'vendor' / 'travelplanner' / 'eval.py'}"
+        )
+
+    def per_plan(self, record: EvalRecord, plan: Plan | None) -> PerPlanResult:
+        raise EvaluationError("FileNotFoundError", self.message)
+
+
+LEAK_FREE_ERROR = (
+    "EvaluationError: FileNotFoundError: [Errno 2] No such file or directory: 'flights.csv'; "
+    "read raw/validation.csv from vendor/travelplanner/eval.py"
+)
+"""``RunDetail.error`` of a run that failed in ``PathLeakingBridge``."""
 
 
 def deps_for(settings: ApiSettings, **changes: Any) -> RunDeps:

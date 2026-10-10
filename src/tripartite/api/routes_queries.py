@@ -5,7 +5,8 @@ including ``TRIPARTITE_DATA_DIR``, is resolved at call time as D3 requires. Only
 and ``query`` are served (``QueryItem``).
 
 If the data is missing or invalid, both routes answer 503 with the loader's message as
-``ErrorDetail.detail``, never FastAPI's default 500 (D8, FU-23). The loader reports that in
+``ErrorDetail.detail``, never FastAPI's default 500 (D8, FU-23), and without absolute paths
+(``messages.py``, FU-35). The loader reports that in
 more than one way (``DATA_ERRORS``): ``DataError`` for a bad data root, ``OSError`` for a file
 that is missing or unreadable, and ``ValueError`` or ``csv.Error`` for a file that is not the
 pinned one.
@@ -16,6 +17,7 @@ from typing import Any, Final
 
 from fastapi import APIRouter, HTTPException
 
+from tripartite.api.messages import public_message
 from tripartite.api.schemas import ErrorDetail, QueryItem, QueryList
 from tripartite.data.manifest import DataError
 from tripartite.data.planner_inputs import get_planner_input, load_planner_inputs
@@ -35,7 +37,7 @@ def list_queries() -> QueryList:
     try:
         inputs = load_planner_inputs()
     except DATA_ERRORS as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from None
+        raise HTTPException(status_code=503, detail=public_message(str(exc))) from None
     return QueryList(items=[QueryItem.from_planner_input(inp) for inp in inputs])
 
 
@@ -54,5 +56,5 @@ def get_query(query_id: str) -> QueryItem:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc.args[0])) from None
     except DATA_ERRORS as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from None
+        raise HTTPException(status_code=503, detail=public_message(str(exc))) from None
     return QueryItem.from_planner_input(inp)

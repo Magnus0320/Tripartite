@@ -369,6 +369,25 @@ export interface components {
             seed: number;
         };
         /**
+         * StageEvent
+         * @description The data of a ``stage`` event of GET /api/runs/{run_id}/events: the run's new stage.
+         */
+        StageEvent: {
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "queued" | "generating" | "parsing" | "evaluating" | "done";
+        };
+        /**
+         * StreamError
+         * @description The data of the ``error`` event that ends the stream of a failed or interrupted run.
+         */
+        StreamError: {
+            /** Message */
+            message: string;
+        };
+        /**
          * Usage
          * @description Tokens and latency of one (query, seed) pair, summed over its planner calls. The
          *     server-reported times are null when no call reported them.
@@ -640,7 +659,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Server-sent events: `snapshot` (RunDetail), `stage` ({stage}) on each change, then `done` (RunDetail) or `error` ({message}), and the stream closes. A `: ping` comment is sent every 15 s. */
+            /** @description Server-sent events: `snapshot` (RunDetail), `stage` (StageEvent) on each change, then `done` (RunDetail) or `error` (StreamError), and the stream closes. A `: ping` comment is sent every 15 s. */
             200: {
                 headers: {
                     [name: string]: unknown;
