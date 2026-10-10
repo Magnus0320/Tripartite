@@ -1,5 +1,5 @@
 """``tripartite data fetch`` and ``tripartite data verify`` (ARCHITECTURE.md D9 ``make data``),
-and ``tripartite data synthetic`` (D4 §Fake mode and data, FU-28)."""
+and ``tripartite data synthetic`` (D4 §Fake mode and data, FU-28, FU-32, FU-33)."""
 
 from pathlib import Path
 from typing import Any
@@ -12,6 +12,7 @@ from tripartite import cli as root_cli
 from tripartite.data import download, manifest
 from tripartite.data.cli import app
 from tripartite.data.planner_inputs import load_planner_inputs
+from tripartite.evaluation.records import load_eval_records
 
 runner = CliRunner()
 
@@ -113,12 +114,19 @@ def test_the_root_cli_reaches_the_data_commands() -> None:
 
 @pytest.fixture
 def repo_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A stand-in for ``<repo>/data`` in ``tmp_path``, so a broken guard cannot write into the
-    real one."""
+    """A stand-in for the repository (``tmp_path / "repo"``) and its ``data/``, so a broken guard
+    cannot write into the real ones."""
     root = tmp_path / "repo" / "data"
     root.mkdir(parents=True)
+    monkeypatch.setattr(manifest, "REPO_ROOT", root.parent)
     monkeypatch.setattr(manifest, "DATA_DIR", root)
     return root
+
+
+@pytest.fixture
+def repo(repo_data: Path) -> Path:
+    """The stand-in repository root."""
+    return repo_data.parent
 
 
 def tree(root: Path) -> list[str]:
@@ -156,7 +164,7 @@ def test_synthetic_refuses_an_out_inside_the_repo_data_dir(inside: str, repo_dat
     assert result.exit_code == 1
     assert result.stdout == ""
     assert f"data synthetic: --out {out} resolves to" in result.stderr
-    assert f"which is inside {repo_data.resolve()}" in result.stderr
+    assert f"which is inside the repository {repo_data.parent.resolve()}" in result.stderr
     assert result.stderr.splitlines()[-1] == "data synthetic: FAILED"
     assert tree(repo_data) == []
 
@@ -171,7 +179,7 @@ def test_synthetic_refuses_an_out_that_reaches_the_repo_data_dir_through_a_symli
         result = runner.invoke(app, ["synthetic", "--out", str(out)])
 
         assert result.exit_code == 1, out
-        assert f"which is inside {repo_data.resolve()}" in result.stderr
+        assert f"which is inside the repository {repo_data.parent.resolve()}" in result.stderr
     assert tree(repo_data) == []
 
 
@@ -187,10 +195,10 @@ def test_synthetic_refuses_a_relative_out_inside_the_repo_data_dir(
     assert tree(repo_data) == []
 
 
-def test_synthetic_accepts_a_sibling_whose_name_starts_with_data(
-    tmp_path: Path, repo_data: Path
+def test_synthetic_accepts_a_sibling_whose_name_starts_with_the_repositorys(
+    tmp_path: Path, repo: Path
 ) -> None:
-    out = repo_data.parent / "data-synthetic"
+    out = repo.parent / "repo-synthetic"
 
     result = runner.invoke(app, ["synthetic", "--out", str(out)])
 
@@ -215,3 +223,122 @@ def test_synthetic_fails_cleanly_when_out_cannot_be_written(tmp_path: Path) -> N
     assert result.exit_code == 1
     assert "data synthetic: cannot write the set under" in result.stderr
     assert result.stderr.splitlines()[-1] == "data synthetic: FAILED"
+
+
+# --- FU-33: no ``--out`` anywhere inside the repository ------------------------------------------
+
+
+def assert_refused(result: Any, out: object, resolved: Path, repo: Path) -> None:
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert (
+        f"data synthetic: --out {out} resolves to {resolved}, which is inside the repository "
+        f"{repo.resolve()}: "
+    ) in result.stderr
+    assert (
+        "choose a directory outside the repository, such as ~/.cache/tripartite/synthetic-scoreable"
+    ) in result.stderr
+    assert result.stderr.splitlines()[-1] == "data synthetic: FAILED"
+
+
+@pytest.mark.parametrize("inside", ["", "syn", "deep/er/syn", "data/x", "src/tripartite"])
+@pytest.mark.parametrize("flags", [[], ["--scoreable"]])
+def test_synthetic_refuses_an_out_inside_the_repository(
+    inside: str, flags: list[str], repo: Path
+) -> None:
+    out = repo / inside
+
+    result = runner.invoke(app, ["synthetic", "--out", str(out), *flags])
+
+    assert_refused(result, out, out.resolve(), repo)
+    assert tree(repo) == ["data"]
+
+
+@pytest.mark.parametrize("relative", [".", "syn", "data/x", "nested/syn", "../repo/syn"])
+def test_synthetic_refuses_a_relative_out_inside_the_repository(
+    relative: str, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["synthetic", "--out", relative])
+
+    assert_refused(result, relative, (repo / relative).resolve(), repo)
+    assert tree(repo) == ["data"]
+
+
+def test_synthetic_refuses_an_out_that_reaches_the_repository_through_a_symlink(
+    tmp_path: Path, repo: Path
+) -> None:
+    link = tmp_path / "elsewhere"
+    link.symlink_to(repo, target_is_directory=True)
+
+    for out in (link, link / "syn"):
+        result = runner.invoke(app, ["synthetic", "--out", str(out)])
+
+        assert_refused(result, out, out.resolve(), repo)
+    assert tree(repo) == ["data"]
+
+
+def test_synthetic_accepts_a_directory_outside_the_repository(tmp_path: Path, repo: Path) -> None:
+    out = tmp_path / "outside" / "syn"
+
+    result = runner.invoke(app, ["synthetic", "--out", str(out)])
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == f"{out.resolve()}\n"
+    assert tree(out) == ["raw", "raw/validation.csv", "raw/validation_ref_info.jsonl"]
+    assert tree(repo) == ["data"]
+
+
+def test_the_default_guarded_directory_is_the_repository_root() -> None:
+    assert (manifest.REPO_ROOT / "pyproject.toml").is_file()
+    out = manifest.REPO_ROOT / "fu33-must-not-exist"
+
+    result = runner.invoke(app, ["synthetic", "--scoreable", "--out", str(out)])
+
+    assert_refused(result, out, out.resolve(), manifest.REPO_ROOT)
+    assert not out.exists()
+
+
+# --- FU-32: ``--scoreable`` ----------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("repo_data")
+def test_synthetic_scoreable_writes_the_scoreable_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path / "syn"
+
+    result = runner.invoke(root_cli.app, ["data", "synthetic", "--scoreable", "--out", str(out)])
+
+    assert result.exit_code == 0, result.output
+    root = out.resolve()
+    assert result.stdout == f"{root}\n"  # still the path alone
+    assert "wrote 180 scoreable synthetic rows" in result.stderr
+    assert tree(root) == ["raw", "raw/validation.csv", "raw/validation_ref_info.jsonl"]
+    expected = synthetic.write_synthetic_data_dir(tmp_path / "expected", scoreable=True) / "raw"
+    canary = synthetic.write_synthetic_data_dir(tmp_path / "canary") / "raw"
+    for name in manifest.HF_FILES:
+        assert (root / "raw" / name).read_bytes() == (expected / name).read_bytes()
+    assert (root / "raw" / "validation.csv").read_bytes() != (
+        canary / "validation.csv"
+    ).read_bytes()
+
+    monkeypatch.setenv(manifest.DATA_DIR_ENV, result.stdout.strip())
+    assert {r.level for r in load_eval_records()} == {"easy", "medium", "hard"}
+
+
+@pytest.mark.usefixtures("repo_data")
+def test_synthetic_without_the_flag_overwrites_a_scoreable_copy_with_the_canary_set(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "syn"
+    assert runner.invoke(app, ["synthetic", "--scoreable", "--out", str(out)]).exit_code == 0
+
+    result = runner.invoke(app, ["synthetic", "--out", str(out)])
+
+    assert result.exit_code == 0, result.output
+    assert "wrote 180 synthetic rows" in result.stderr
+    canary = synthetic.write_synthetic_data_dir(tmp_path / "canary") / "raw"
+    for name in manifest.HF_FILES:
+        assert (out / "raw" / name).read_bytes() == (canary / name).read_bytes()

@@ -20,6 +20,10 @@ sessions import this module and never copy or edit it.
 and a matching ``raw/validation_ref_info.jsonl`` under ``root``, and returns ``root``. There is
 no ``MANIFEST.json``: the loaders do not check it. ``tripartite.data.synthetic`` describes the
 canaries and the byte-exactness traps.
+
+``write_synthetic_data_dir(root, scoreable=True)`` writes the scoreable copy instead (FU-32): real
+levels, and local constraints that fit them, for code that feeds the rows into ``aggregate()`` or
+runs the pipeline on them. New code uses it rather than its own rewrite (D3).
 """
 
 from tripartite.data.synthetic import (

@@ -1,5 +1,5 @@
 """``tripartite data``: fetch and verify the pinned data (ARCHITECTURE.md D3, D5, §6), and write
-the synthetic set (D4 §Fake mode and data, FU-28).
+the synthetic set (D4 §Fake mode and data, FU-28, FU-32, FU-33).
 
 ``make data`` runs ``fetch`` then ``verify``; ``make doctor`` runs ``verify``. Both exit 1 on
 any mismatch with the pins, printing the expected and actual values. ``fetch`` also unpacks the
@@ -7,8 +7,10 @@ verified database zip into ``vendor/travelplanner/database/`` (D5 §Database —
 
 ``synthetic --out DIR`` writes the shared synthetic set under ``DIR`` and prints the absolute data
 root on stdout, for ``TRIPARTITE_DATA_DIR``. Fake mode is synthetic-data-only (D4), so this is
-what web development and ``make api`` in fake mode run on. It refuses a ``DIR`` that resolves to
-``<repo>/data`` or to a path inside it, where the real data lives.
+what web development and ``make api`` in fake mode run on. ``--scoreable`` writes the scoreable
+copy, on which a fake-mode run succeeds. It refuses a ``DIR`` that resolves to the repository
+root or to a path inside it: ``data/`` holds the real data, and synthetic files anywhere else in
+the repository are untracked, so they could be committed by accident.
 """
 
 import zipfile
@@ -21,6 +23,9 @@ from tripartite.data import download, manifest
 from tripartite.data import synthetic as synthetic_set
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
+
+SUGGESTED_OUT = "~/.cache/tripartite/synthetic-scoreable"
+"""Where D4 suggests keeping the synthetic set: outside the repository."""
 
 
 @app.callback()
@@ -94,28 +99,39 @@ def verify() -> None:
 def synthetic(
     out: Annotated[
         Path,
-        typer.Option("--out", help="The directory to write the set under; never inside data/."),
+        typer.Option(
+            "--out", help="The directory to write the set under; never inside the repository."
+        ),
     ],
+    scoreable: Annotated[
+        bool,
+        typer.Option(
+            "--scoreable",
+            help="Write the scoreable copy: real levels and local constraints that fit them.",
+        ),
+    ] = False,
 ) -> None:
     """Write the shared synthetic set (never real data) under --out and print the absolute data
     root to use as TRIPARTITE_DATA_DIR."""
     root = out.resolve()
-    real = manifest.DATA_DIR.resolve()
-    if root.is_relative_to(real):
+    repo = manifest.REPO_ROOT.resolve()
+    if root.is_relative_to(repo):
         raise _fail(
             "synthetic",
             [
-                f"--out {out} resolves to {root}, which is inside {real}: that tree holds the "
-                "real data, and the synthetic set must never be written there; choose a "
-                "directory outside it"
+                f"--out {out} resolves to {root}, which is inside the repository {repo}: "
+                "synthetic files there are untracked and could be committed by accident, and "
+                "data/ holds the real data; choose a directory outside the repository, such as "
+                f"{SUGGESTED_OUT}"
             ],
         )
     try:
-        synthetic_set.write_synthetic_data_dir(root)
+        synthetic_set.write_synthetic_data_dir(root, scoreable=scoreable)
     except OSError as exc:
         raise _fail("synthetic", [f"cannot write the set under {root}: {exc}"]) from None
+    kind = "scoreable synthetic" if scoreable else "synthetic"
     typer.echo(
-        f"data synthetic: wrote {synthetic_set.N} synthetic rows to {root / 'raw'}; "
+        f"data synthetic: wrote {synthetic_set.N} {kind} rows to {root / 'raw'}; "
         f"use the path below as {manifest.DATA_DIR_ENV}",
         err=True,
     )
