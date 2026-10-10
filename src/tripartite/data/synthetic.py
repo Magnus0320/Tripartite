@@ -1,6 +1,6 @@
 """The shared synthetic data set (data-eval; ARCHITECTURE.md D3 §Planner inputs in other
-sessions' tests, D4 §Fake mode and data, FU-14, FU-28). Never rows of the real data (§8): every
-value is generated here from the row number, and this module reads no file.
+sessions' tests, D4 §Fake mode and data, FU-14, FU-28, FU-32). Never rows of the real data (§8):
+every value is generated here from the row number, and this module reads no file.
 
 It has two users. Tests import it through ``tests.fixtures.synthetic_data``, which re-exports
 every name here unchanged. ``tripartite data synthetic --out DIR`` writes it for fake mode
@@ -28,8 +28,18 @@ prompt is a pure function of ``query`` and ``reference_information``).
 The queries and reference lines carry quotes, commas, embedded newlines, odd spacing, tabs and
 non-ASCII text, so byte-exactness is exercised too; ``query(i)`` and ``ref_line(i)`` give the
 exact values of row ``i`` (from 1).
+
+The scoreable copy (FU-32): ``write_synthetic_data_dir(root, scoreable=True)`` and ``tripartite
+data synthetic --scoreable`` write the same set with a real ``level`` in place of the canary, and
+local constraints that fit it, so ``aggregate()`` can score its rows and a fake-mode run on it
+succeeds (D4). Row ``i`` gets the level its canary names, easy, medium or hard by ``i % 3``; an
+easy row carries no local constraint; a medium row keeps the row's own with ``transportation``
+set to ``None`` (``eval.py`` counts no transportation check for a medium query); a hard row
+keeps all of its own. Every other field, and the JSONL file, is the canary set's. Without
+``scoreable`` the bytes are the pinned canary set's, which never changes.
 """
 
+import ast
 import csv
 import re
 from pathlib import Path
@@ -63,6 +73,10 @@ CANARY_STRING_COLUMNS: Final = (
     "reference_information",
 )
 CANARY_NUMBER_COLUMNS: Final = ("visiting_city_number", "people_number", "budget")
+_LEVELS: Final = ("easy", "medium", "hard")
+_NO_LOCAL_CONSTRAINT: Final = (
+    "{'house rule': None, 'cuisine': None, 'room type': None, 'transportation': None}"
+)
 
 
 def query(i: int) -> str:
@@ -113,6 +127,19 @@ def row(i: int) -> dict[str, str]:
     }
 
 
+def _scoreable_row(i: int) -> dict[str, str]:
+    """Row ``i`` of the scoreable copy: ``row(i)`` with a real level, and local constraints that
+    fit it (none for easy, no ``transportation`` for medium)."""
+    cells = row(i)
+    level = _LEVELS[i % 3]
+    constraint = ast.literal_eval(local_constraint(i))
+    if level == "medium":
+        constraint["transportation"] = None
+    cells["level"] = level
+    cells["local_constraint"] = _NO_LOCAL_CONSTRAINT if level == "easy" else repr(constraint)
+    return cells
+
+
 def canaries(i: int) -> list[str]:
     """Every value of row ``i`` that only the evaluator may see, as a substring to look for:
     each ``CANARY_`` token, each canary number as a decimal string, and the bare prefix."""
@@ -134,12 +161,14 @@ def write_jsonl(path: Path, lines: list[str]) -> None:
     path.write_bytes(b"".join(line.encode() + b"\n" for line in lines))
 
 
-def write_raw(raw_dir: Path, n_rows: int = N, n_refs: int = N) -> None:
-    write_csv(raw_dir / "validation.csv", [row(i) for i in range(1, n_rows + 1)])
+def write_raw(raw_dir: Path, n_rows: int = N, n_refs: int = N, *, scoreable: bool = False) -> None:
+    make_row = _scoreable_row if scoreable else row
+    write_csv(raw_dir / "validation.csv", [make_row(i) for i in range(1, n_rows + 1)])
     write_jsonl(raw_dir / "validation_ref_info.jsonl", [ref_line(i) for i in range(1, n_refs + 1)])
 
 
-def write_synthetic_data_dir(root: Path) -> Path:
-    """Write the full synthetic set under ``root`` and return the root for TRIPARTITE_DATA_DIR."""
-    write_raw(root / "raw")
+def write_synthetic_data_dir(root: Path, *, scoreable: bool = False) -> Path:
+    """Write the full synthetic set under ``root`` and return the root for TRIPARTITE_DATA_DIR.
+    With ``scoreable``, write the scoreable copy instead of the canary set."""
+    write_raw(root / "raw", scoreable=scoreable)
     return root
