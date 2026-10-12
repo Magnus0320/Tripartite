@@ -95,21 +95,16 @@ describe("QueryPicker", () => {
     expect(panel.getByText("val-002")).toBeTruthy();
   });
 
-  it("shows a fixed message for a 503 and keeps the detail out of the page until asked", async () => {
-    const detail = "validation.csv not found: /Users/x/data/raw/validation.csv";
+  it("shows the API's message for a 503 directly", async () => {
+    const detail = "validation.csv not found: raw/validation.csv";
     stubFetch(() => Response.json({ detail }, { status: 503 }));
     render(<App />);
 
     const alert = await screen.findByRole("alert");
     expect(within(alert).getByRole("heading", { name: "Query data is unavailable" })).toBeTruthy();
-    expect(document.body.textContent).not.toContain("/Users/x");
-    expect(screen.queryAllByRole("radio")).toHaveLength(0);
-
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
     expect(within(alert).getByText(detail)).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Hide details" }));
-    expect(document.body.textContent).not.toContain("/Users/x");
+    expect(screen.queryByRole("button", { name: "Show details" })).toBeNull();
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
   });
 
   it("loads the list when Retry succeeds after a 503", async () => {
@@ -132,12 +127,26 @@ describe("QueryPicker", () => {
     expect(search()).toHaveProperty("disabled", true);
   });
 
-  it("shows that the API is unreachable when the request fails", async () => {
-    stubFetch(() => Promise.reject(new TypeError("Failed to fetch")));
+  it.each([
+    ["the request fails", () => Promise.reject(new TypeError("Failed to fetch"))],
+    ["the dev proxy answers 502", () => new Response("", { status: 502 })],
+    ["a gateway answers 504", () => new Response("", { status: 504 })],
+  ])("shows that the API is unreachable when %s", async (_name, respond) => {
+    stubFetch(respond);
     render(<App />);
 
     const alert = await screen.findByRole("alert");
     expect(within(alert).getByRole("heading", { name: "Can’t reach the API" })).toBeTruthy();
     expect(within(alert).getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
+
+  it("shows any other status as a generic error with that status", async () => {
+    stubFetch(() => Response.json({ detail: "boom" }, { status: 500 }));
+    render(<App />);
+
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByRole("heading", { name: "The API returned an error" })).toBeTruthy();
+    expect(within(alert).getByText("HTTP status 500")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("boom");
   });
 });
