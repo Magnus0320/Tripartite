@@ -4,6 +4,7 @@ an SSE parser. Everything runs in fake mode on the synthetic data, in a temporar
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -180,6 +181,23 @@ def run_batch(settings: ApiSettings, queries: list[str], seeds: list[int]) -> st
     outcome = execute(open_run(batch_config(queries, seeds), deps_for(settings)))
     assert outcome.status == "succeeded", outcome.error
     return outcome.run_id
+
+
+def run_at(
+    settings: ApiSettings, when: datetime, config: RunConfig | None = None, **changes: Any
+) -> str:
+    """A finished run whose every timestamp, and so its run id, is ``when``: a single run of
+    val-001 with seed 0 unless ``config`` says otherwise."""
+    config = config or single_config(SINGLE_CONFIG_PATH, "val-001", 0)
+    outcome = execute(open_run(config, deps_for(settings, clock=lambda: when, **changes)))
+    assert outcome.status == "succeeded", outcome.error
+    return outcome.run_id
+
+
+def corrupt_log(settings: ApiSettings, run_id: str) -> None:
+    """Leave a half-written last line in the run's log, as a crash in the middle of one does."""
+    with (settings.runs_dir / run_id / "events.jsonl").open("ab") as file:
+        file.write(b'{"schema_version": 1, "event_')
 
 
 def start(client: TestClient, query_id: str = "val-001", **body: Any) -> str:

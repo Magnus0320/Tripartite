@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 
 from tripartite import cli as root_cli
 from tripartite.api.cli import app
+from tripartite.runlog.schema import RUN_ID_PATTERN
 
 runner = CliRunner()
 CONTRACT = Path(__file__).resolve().parents[2] / "api-contract" / "openapi.json"
@@ -37,16 +38,18 @@ def test_the_root_cli_exports_the_same_document() -> None:
     assert result.output == _export()
 
 
-def test_the_contract_has_exactly_the_f1_and_f2_operations() -> None:
+def test_the_contract_has_exactly_the_f1_f2_and_f3_operations() -> None:
     paths = json.loads(_export())["paths"]
 
     assert {path: set(ops) for path, ops in paths.items()} == {
         "/api/health": {"get"},
         "/api/queries": {"get"},
         "/api/queries/{query_id}": {"get"},
-        "/api/runs": {"post"},
+        "/api/runs": {"get", "post"},
         "/api/runs/{run_id}": {"get"},
         "/api/runs/{run_id}/events": {"get"},
+        "/api/runs/{run_id}/items": {"get"},
+        "/api/runs/{run_id}/items/{query_id}/{seed}": {"get"},
     }
 
 
@@ -109,6 +112,28 @@ D8_SCHEMAS = {
     "RunConflict": {"detail", "active_run_id"},
     "StageEvent": {"stage"},
     "StreamError": {"message"},
+    "RunSummary": {
+        "run_id",
+        "kind",
+        "status",
+        "created_at",
+        "query_id",
+        "seed",
+        "final_pass",
+        "delivered",
+        "headline",
+    },
+    "RunHeadline": {"final_pass_rate_mean", "delivery_rate_mean"},
+    "RunList": {"items", "next_before"},
+    "ItemSummary": {
+        "query_id",
+        "seed",
+        "delivered",
+        "final_pass",
+        "commonsense_pass",
+        "hard_pass",
+    },
+    "ItemList": {"items"},
 }
 
 
@@ -177,6 +202,45 @@ def test_the_run_routes_document_their_responses() -> None:
     events = paths["/api/runs/{run_id}/events"]["get"]["responses"]
     assert set(events["200"]["content"]) == {"text/event-stream"}
     assert "404" in events
+
+
+def test_the_history_routes_document_their_parameters_and_responses() -> None:
+    paths = json.loads(_export())["paths"]
+
+    def ref(path: str, status: str) -> str:
+        schema = paths[path]["get"]["responses"][status]["content"]["application/json"]["schema"]
+        return str(schema["$ref"]).rsplit("/", 1)[-1]
+
+    def parameters(path: str) -> dict[str, dict[str, Any]]:
+        return {p["name"]: p for p in paths[path]["get"]["parameters"]}
+
+    runs, items, item = (
+        "/api/runs",
+        "/api/runs/{run_id}/items",
+        "/api/runs/{run_id}/items/{query_id}/{seed}",
+    )
+    assert set(paths[runs]["get"]["responses"]) == {"200", "422"}
+    assert ref(runs, "200") == "RunList"
+    limit, before = parameters(runs)["limit"], parameters(runs)["before"]
+    assert (limit["required"], before["required"]) == (False, False)
+    assert limit["schema"] == {
+        "default": 50,
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer",
+    }
+    assert before["schema"]["anyOf"][0] == {"pattern": RUN_ID_PATTERN, "type": "string"}
+    assert set(paths[items]["get"]["responses"]) == {"200", "404", "422", "500"}
+    assert ref(items, "200") == "ItemList"
+    seed = parameters(items)["seed"]
+    assert (seed["in"], seed["required"]) == ("query", True)
+    assert seed["schema"] == {"minimum": 0, "title": "Seed", "type": "integer"}
+    assert set(paths[item]["get"]["responses"]) == {"200", "404", "422", "500", "503"}
+    assert ref(item, "200") == "ItemDetail"
+    for path, statuses in ((items, ("404", "500")), (item, ("404", "500", "503"))):
+        for status in statuses:
+            assert ref(path, status) == "ErrorDetail"
 
 
 def test_the_query_schema_exposes_only_planner_input_fields() -> None:

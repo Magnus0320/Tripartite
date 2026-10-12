@@ -2,16 +2,14 @@
 
 Every test here reads a synthetic data set through ``TRIPARTITE_DATA_DIR``, set with
 ``monkeypatch.setenv``. Nothing in ``tripartite.data`` is patched, and the real data is never
-read (§8). The set is the shared one with ``level`` and ``local_constraint`` rewritten in this
-temporary copy, because a run scores its plans with ``aggregate()``, which needs a real level
-(D3, v0.9); the shared set itself is not changed.
+read (§8). The set is the shared one's scoreable copy (``scoreable=True``, FU-32), because a run
+scores its plans with ``aggregate()``, which needs a real level (D3, v0.9).
 
 Runs go to a temporary ``runs/`` (``app.state.settings``), never to the repository's, and two
 guards hold for every test: nothing connects to an Ollama port, and the repository's ``runs/``
 is left as it was.
 """
 
-import ast
 import socket
 from collections.abc import Iterator
 from pathlib import Path
@@ -27,28 +25,11 @@ from tripartite.config import RUNS_DIR
 
 OLLAMA_PORTS = {11434, 11435}
 """The desktop app and the dedicated server: no test here may contact either."""
-LEVELS = ("easy", "medium", "hard")
-NO_CONSTRAINTS = "{'house rule': None, 'cuisine': None, 'room type': None, 'transportation': None}"
-
-
-def scoreable_row(i: int) -> dict[str, str]:
-    """Row ``i`` of the shared set with a real level, and local constraints that fit it: none
-    for easy, no ``transportation`` for medium (``eval.py`` does not count it there)."""
-    row = shared_set.row(i)
-    level = LEVELS[i % 3]
-    constraint = ast.literal_eval(shared_set.local_constraint(i))
-    if level == "medium":
-        constraint["transportation"] = None
-    row["level"] = level
-    row["local_constraint"] = NO_CONSTRAINTS if level == "easy" else repr(constraint)
-    return row
 
 
 @pytest.fixture(autouse=True)
 def synthetic_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = shared_set.write_synthetic_data_dir(tmp_path / "data")
-    rows = [scoreable_row(i) for i in range(1, shared_set.N + 1)]
-    shared_set.write_csv(root / "raw" / "validation.csv", rows)
+    root = shared_set.write_synthetic_data_dir(tmp_path / "data", scoreable=True)
     monkeypatch.setenv("TRIPARTITE_DATA_DIR", str(root))
     return root
 
