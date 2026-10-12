@@ -281,6 +281,64 @@
         "title": "ItemDetail",
         "type": "object"
       },
+      "ItemList": {
+        "additionalProperties": false,
+        "description": "The response of GET /api/runs/{run_id}/items: the finished pairs of one seed, in the\nrun's query order.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ItemSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ItemList",
+        "type": "object"
+      },
+      "ItemSummary": {
+        "additionalProperties": false,
+        "description": "One finished (query, seed) pair of a batch run: the evaluator's verdict.",
+        "properties": {
+          "commonsense_pass": {
+            "title": "Commonsense Pass",
+            "type": "boolean"
+          },
+          "delivered": {
+            "title": "Delivered",
+            "type": "boolean"
+          },
+          "final_pass": {
+            "title": "Final Pass",
+            "type": "boolean"
+          },
+          "hard_pass": {
+            "title": "Hard Pass",
+            "type": "boolean"
+          },
+          "query_id": {
+            "title": "Query Id",
+            "type": "string"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query_id",
+          "seed",
+          "delivered",
+          "final_pass",
+          "commonsense_pass",
+          "hard_pass"
+        ],
+        "title": "ItemSummary",
+        "type": "object"
+      },
       "MetricSummary": {
         "additionalProperties": false,
         "description": "One official metric: a rate in [0, 1] per seed, their mean, and the sample SD (null with\nfewer than two seeds).",
@@ -562,6 +620,56 @@
         "title": "RunDetail",
         "type": "object"
       },
+      "RunHeadline": {
+        "additionalProperties": false,
+        "description": "The two headline means of a scored batch run, as rates in [0, 1].",
+        "properties": {
+          "delivery_rate_mean": {
+            "title": "Delivery Rate Mean",
+            "type": "number"
+          },
+          "final_pass_rate_mean": {
+            "title": "Final Pass Rate Mean",
+            "type": "number"
+          }
+        },
+        "required": [
+          "final_pass_rate_mean",
+          "delivery_rate_mean"
+        ],
+        "title": "RunHeadline",
+        "type": "object"
+      },
+      "RunList": {
+        "additionalProperties": false,
+        "description": "The response of GET /api/runs: one page of runs, newest first. ``next_before`` is the\n``before`` of the next page, or null when this page is the last.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RunSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before"
+          }
+        },
+        "required": [
+          "items",
+          "next_before"
+        ],
+        "title": "RunList",
+        "type": "object"
+      },
       "RunRequest": {
         "additionalProperties": false,
         "description": "The body of POST /api/runs: one validation query and one seed.",
@@ -581,6 +689,107 @@
           "query_id"
         ],
         "title": "RunRequest",
+        "type": "object"
+      },
+      "RunSummary": {
+        "additionalProperties": false,
+        "description": "One run in the history list. ``query_id`` and ``seed`` are set for a single run, and\n``delivered`` and ``final_pass`` once its pair is done; ``headline`` is set for a batch run\nonce it is scored. Everything that does not apply, or is not known yet, is null.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "delivered": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivered"
+          },
+          "final_pass": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Pass"
+          },
+          "headline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunHeadline"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "enum": [
+              "batch",
+              "single"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "query_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query Id"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "interrupted"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "kind",
+          "status",
+          "created_at",
+          "query_id",
+          "seed",
+          "final_pass",
+          "delivered",
+          "headline"
+        ],
+        "title": "RunSummary",
         "type": "object"
       },
       "StageEvent": {
@@ -855,6 +1064,64 @@
       }
     },
     "/api/runs": {
+      "get": {
+        "description": "The run history, newest first, both kinds: at most ``limit`` runs older than ``before``.",
+        "operationId": "get_runs_api_runs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9]{8}T[0-9]{6}Z-(batch|single)-[0-9a-f]{8}-[0-9a-f]{4}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Runs"
+      },
       "post": {
         "description": "Start a single run of one validation query with one seed. One job runs at a time.",
         "operationId": "start_run_api_runs_post",
@@ -1061,6 +1328,164 @@
           }
         },
         "summary": "Get Run Events"
+      }
+    },
+    "/api/runs/{run_id}/items": {
+      "get": {
+        "description": "The finished (query, seed) pairs of one seed of a batch run, in the run's query order.",
+        "operationId": "get_run_items_api_runs__run_id__items_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "seed",
+            "required": true,
+            "schema": {
+              "minimum": 0,
+              "title": "Seed",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Unknown run_id, a single run, or a seed the run does not have"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The run log is corrupt"
+          }
+        },
+        "summary": "Get Run Items"
+      }
+    },
+    "/api/runs/{run_id}/items/{query_id}/{seed}": {
+      "get": {
+        "description": "One (query, seed) pair of a run: its plan, the evaluator's verdict and its usage.",
+        "operationId": "get_run_item_api_runs__run_id__items__query_id___seed__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "query_id",
+            "required": true,
+            "schema": {
+              "title": "Query Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "seed",
+            "required": true,
+            "schema": {
+              "title": "Seed",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Unknown run_id, a pair the run does not have, or no result yet"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The run log is corrupt"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The data is missing or invalid"
+          }
+        },
+        "summary": "Get Run Item"
       }
     }
   }

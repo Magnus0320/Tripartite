@@ -72,7 +72,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Get Runs
+         * @description The run history, newest first, both kinds: at most ``limit`` runs older than ``before``.
+         */
+        get: operations["get_runs_api_runs_get"];
         put?: never;
         /**
          * Start Run
@@ -117,6 +121,46 @@ export interface paths {
          * @description Follow one run until it is finished; a finished run sends its two events and closes.
          */
         get: operations["get_run_events_api_runs__run_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run Items
+         * @description The finished (query, seed) pairs of one seed of a batch run, in the run's query order.
+         */
+        get: operations["get_run_items_api_runs__run_id__items_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/items/{query_id}/{seed}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run Item
+         * @description One (query, seed) pair of a run: its plan, the evaluator's verdict and its usage.
+         */
+        get: operations["get_run_item_api_runs__run_id__items__query_id___seed__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -247,6 +291,33 @@ export interface components {
             usage: components["schemas"]["Usage"];
         };
         /**
+         * ItemList
+         * @description The response of GET /api/runs/{run_id}/items: the finished pairs of one seed, in the
+         *     run's query order.
+         */
+        ItemList: {
+            /** Items */
+            items: components["schemas"]["ItemSummary"][];
+        };
+        /**
+         * ItemSummary
+         * @description One finished (query, seed) pair of a batch run: the evaluator's verdict.
+         */
+        ItemSummary: {
+            /** Commonsense Pass */
+            commonsense_pass: boolean;
+            /** Delivered */
+            delivered: boolean;
+            /** Final Pass */
+            final_pass: boolean;
+            /** Hard Pass */
+            hard_pass: boolean;
+            /** Query Id */
+            query_id: string;
+            /** Seed */
+            seed: number;
+        };
+        /**
          * MetricSummary
          * @description One official metric: a rate in [0, 1] per seed, their mean, and the sample SD (null with
          *     fewer than two seeds).
@@ -356,6 +427,27 @@ export interface components {
             summary: components["schemas"]["BatchSummary"] | null;
         };
         /**
+         * RunHeadline
+         * @description The two headline means of a scored batch run, as rates in [0, 1].
+         */
+        RunHeadline: {
+            /** Delivery Rate Mean */
+            delivery_rate_mean: number;
+            /** Final Pass Rate Mean */
+            final_pass_rate_mean: number;
+        };
+        /**
+         * RunList
+         * @description The response of GET /api/runs: one page of runs, newest first. ``next_before`` is the
+         *     ``before`` of the next page, or null when this page is the last.
+         */
+        RunList: {
+            /** Items */
+            items: components["schemas"]["RunSummary"][];
+            /** Next Before */
+            next_before: string | null;
+        };
+        /**
          * RunRequest
          * @description The body of POST /api/runs: one validation query and one seed.
          */
@@ -367,6 +459,40 @@ export interface components {
              * @default 0
              */
             seed: number;
+        };
+        /**
+         * RunSummary
+         * @description One run in the history list. ``query_id`` and ``seed`` are set for a single run, and
+         *     ``delivered`` and ``final_pass`` once its pair is done; ``headline`` is set for a batch run
+         *     once it is scored. Everything that does not apply, or is not known yet, is null.
+         */
+        RunSummary: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Delivered */
+            delivered: boolean | null;
+            /** Final Pass */
+            final_pass: boolean | null;
+            headline: components["schemas"]["RunHeadline"] | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "batch" | "single";
+            /** Query Id */
+            query_id: string | null;
+            /** Run Id */
+            run_id: string;
+            /** Seed */
+            seed: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "interrupted";
         };
         /**
          * StageEvent
@@ -530,6 +656,38 @@ export interface operations {
             };
         };
     };
+    get_runs_api_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                before?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     start_run_api_runs_post: {
         parameters: {
             query?: never;
@@ -669,6 +827,117 @@ export interface operations {
                 };
             };
             /** @description Unknown run_id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description The run log is corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description The data is missing or invalid */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    get_run_items_api_runs__run_id__items_get: {
+        parameters: {
+            query: {
+                seed: number;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemList"];
+                };
+            };
+            /** @description Unknown run_id, a single run, or a seed the run does not have */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description The run log is corrupt */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    get_run_item_api_runs__run_id__items__query_id___seed__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                query_id: string;
+                seed: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description Unknown run_id, a pair the run does not have, or no result yet */
             404: {
                 headers: {
                     [name: string]: unknown;

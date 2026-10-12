@@ -1,4 +1,5 @@
-"""``/api/runs`` (ARCHITECTURE.md D8, F2): start a single run, read it, and follow it.
+"""``/api/runs`` (ARCHITECTURE.md D8, F2 and F3): start a single run, read it, follow it, and
+list the history.
 
 ``POST /api/runs`` starts one run of one query and one seed through the job runner
 (``jobs.py``). It answers 202 once the run exists on disk as ``queued``; 404 for an unknown
@@ -10,29 +11,54 @@ start leaves nothing on disk.
 ``GET /api/runs/{run_id}`` and its ``/events`` stream read the run directory (``history.py``,
 ``sse.py``). Both answer 404 for an id that is malformed or has no ``manifest.json``, 503 when
 the run's query text cannot be read from the data, and 500 with the reader's message when the
-run log is corrupt (D7: the API never repairs one). No ``detail`` holds an absolute path
-(``messages.py``, FU-35).
+run log is corrupt (D7: the API never repairs one).
+
+F3 reads ``runs/`` only (``history.py``). ``GET /api/runs`` is the history, newest first, at
+most ``limit`` runs (1 to 200) older than ``before``. ``before`` is a position: a well-formed
+run id that names no run is accepted, and a malformed one is 422. ``GET
+/api/runs/{run_id}/items?seed=<n>`` lists a batch run's finished pairs of one seed; it is 404
+for a single run and for a seed the run does not have. ``GET
+/api/runs/{run_id}/items/{query_id}/{seed}`` is one pair of a run of either kind; it is 404 for
+a pair the run does not have or that has no result yet. Both answer 404, 500 and 503 as ``GET
+/api/runs/{run_id}`` does.
+
+No ``detail`` holds an absolute path (``messages.py``, FU-35).
 """
 
 import asyncio
+from collections.abc import Callable
 from functools import partial
-from typing import Any, Final
+from typing import Annotated, Any, Final
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
 
 from tripartite.api import routes_queries
 from tripartite.api.history import (
+    ItemNotFoundError,
+    NoItemsError,
     QueryUnavailableError,
     RunNotFoundError,
     find_run_dir,
+    list_items,
+    list_runs,
+    load_item_detail,
     load_run_detail,
 )
 from tripartite.api.jobs import ApiSettings, JobActiveError, JobRunner
 from tripartite.api.messages import public_message
-from tripartite.api.schemas import ErrorDetail, RunAccepted, RunConflict, RunDetail, RunRequest
+from tripartite.api.schemas import (
+    ErrorDetail,
+    ItemDetail,
+    ItemList,
+    RunAccepted,
+    RunConflict,
+    RunDetail,
+    RunList,
+    RunRequest,
+)
 from tripartite.api.sse import event_stream, run_events
 from tripartite.config import ConfigError
 from tripartite.data.planner_inputs import get_planner_input
@@ -41,6 +67,7 @@ from tripartite.pipeline.lock import ModelLockHeldError
 from tripartite.pipeline.run import read_manifest
 from tripartite.planner.prompt import PromptError
 from tripartite.runlog.reader import RunLogError
+from tripartite.runlog.schema import RUN_ID_PATTERN
 
 router = APIRouter()
 
@@ -55,10 +82,15 @@ CANNOT_START: Final = (
 """What ``open_run`` raises before a run exists, other than a held model lock."""
 Responses = dict[int | str, dict[str, Any]]
 UNKNOWN_RUN: Final[Responses] = {404: {"model": ErrorDetail, "description": "Unknown run_id"}}
+CORRUPT_LOG: Final[Responses] = {
+    500: {"model": ErrorDetail, "description": "The run log is corrupt"}
+}
 QUERY_UNAVAILABLE: Final[Responses] = {
-    500: {"model": ErrorDetail, "description": "The run log is corrupt"},
+    **CORRUPT_LOG,
     503: {"model": ErrorDetail, "description": "The data is missing or invalid"},
 }
+MAX_LIMIT: Final = 200
+"""The most runs one page of the history holds."""
 
 
 def _settings(request: Request) -> ApiSettings:
@@ -112,16 +144,31 @@ async def start_run(body: RunRequest, request: Request) -> RunAccepted | JSONRes
     return RunAccepted(run_id=run_id, status="queued")
 
 
-def _detail(settings: ApiSettings, run_id: str) -> RunDetail:
+def _read[T](load: Callable[[], T]) -> T:
+    """What ``load`` reads from a run directory, or the 404, 503 or 500 of its error."""
     try:
-        return load_run_detail(settings.runs_dir, run_id)
-    except RunNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from None
+        return load()
+    except (RunNotFoundError, NoItemsError, ItemNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=public_message(str(exc))) from None
     except QueryUnavailableError as exc:
         raise HTTPException(status_code=503, detail=public_message(str(exc))) from None
     except RunLogError as exc:
         detail = public_message(f"the run log is corrupt: {exc}")
         raise HTTPException(status_code=500, detail=detail) from None
+
+
+def _detail(settings: ApiSettings, run_id: str) -> RunDetail:
+    return _read(partial(load_run_detail, settings.runs_dir, run_id))
+
+
+@router.get("/api/runs")
+def get_runs(
+    request: Request,
+    limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = 50,
+    before: Annotated[str | None, Query(pattern=RUN_ID_PATTERN)] = None,
+) -> RunList:
+    """The run history, newest first, both kinds: at most ``limit`` runs older than ``before``."""
+    return list_runs(_settings(request).runs_dir, limit, before)
 
 
 @router.get("/api/runs/{run_id}", responses={**UNKNOWN_RUN, **QUERY_UNAVAILABLE})
@@ -158,3 +205,33 @@ async def get_run_events(run_id: str, request: Request) -> EventSourceResponse:
         poll_s=settings.sse_poll_s,
     )
     return event_stream(events, ping_s=settings.sse_ping_s)
+
+
+@router.get(
+    "/api/runs/{run_id}/items",
+    responses={
+        404: {
+            "model": ErrorDetail,
+            "description": "Unknown run_id, a single run, or a seed the run does not have",
+        },
+        **CORRUPT_LOG,
+    },
+)
+def get_run_items(run_id: str, request: Request, seed: Annotated[int, Query(ge=0)]) -> ItemList:
+    """The finished (query, seed) pairs of one seed of a batch run, in the run's query order."""
+    return _read(partial(list_items, _settings(request).runs_dir, run_id, seed))
+
+
+@router.get(
+    "/api/runs/{run_id}/items/{query_id}/{seed}",
+    responses={
+        404: {
+            "model": ErrorDetail,
+            "description": "Unknown run_id, a pair the run does not have, or no result yet",
+        },
+        **QUERY_UNAVAILABLE,
+    },
+)
+def get_run_item(run_id: str, query_id: str, seed: int, request: Request) -> ItemDetail:
+    """One (query, seed) pair of a run: its plan, the evaluator's verdict and its usage."""
+    return _read(partial(load_item_detail, _settings(request).runs_dir, run_id, query_id, seed))

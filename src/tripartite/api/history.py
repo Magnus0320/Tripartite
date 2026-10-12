@@ -11,12 +11,24 @@
 - A **batch** run's ``summary`` is the manifest's progress plus ``metrics.json``'s six official
   metrics, which are empty until the run is scored.
 
+F3 reads the same files. ``list_runs`` is the history: the directories of ``runs/`` whose name is
+a run id and that hold a readable ``manifest.json``, newest first by run id (an id starts with
+its UTC timestamp), one page at a time. Anything else in ``runs/``, such as ``runs/reproduce/``,
+is skipped without error. ``list_items`` gives a batch run's finished pairs of one seed, and
+``load_item_detail`` one pair of any run, built by the function that builds ``RunDetail.item``.
+
 A succeeded run is read with the strict reader (D7). Any other run may end in a half-written
 line: one in progress is being appended to, and a failed or interrupted one may have been cut
 off by a crash. That one line is skipped, and never repaired; resume alone repairs.
+
+One unreadable run never breaks the history list: a single run whose log is corrupt, or a batch
+run whose ``metrics.json`` is invalid, is listed with those fields null, and the error is logged.
+That run's own routes still answer 500.
 """
 
 import csv
+import logging
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Final
 
@@ -26,10 +38,15 @@ from tripartite.api.schemas import (
     Constraint,
     DayPlan,
     ItemDetail,
+    ItemList,
+    ItemSummary,
     MetricSummary,
     ModelRef,
     Progress,
     RunDetail,
+    RunHeadline,
+    RunList,
+    RunSummary,
     Usage,
 )
 from tripartite.data.manifest import DataError
@@ -40,9 +57,10 @@ from tripartite.parse.text_plan_parser import EMPTY_VALUE
 from tripartite.pipeline.metrics import METRICS_FILE, RunLogView, plans_for, result_from_event
 from tripartite.pipeline.run import EVENTS_FILE, MANIFEST_FILE, read_manifest
 from tripartite.planner.sole_planner import WARMUP_ROLE
-from tripartite.runlog.reader import read_events
+from tripartite.runlog.reader import RunLogError, read_events
 from tripartite.runlog.schema import (
     EvalEvent,
+    Event,
     LlmCallEvent,
     Metrics,
     ParseEvent,
@@ -50,6 +68,8 @@ from tripartite.runlog.schema import (
     RunManifest,
     validate_run_id,
 )
+
+logger: Final = logging.getLogger("tripartite.api")
 
 ACTIVE: Final = ("queued", "running")
 """The statuses of a run that is not finished (D7)."""
@@ -63,6 +83,14 @@ class RunNotFoundError(LookupError):
 
 class QueryUnavailableError(RuntimeError):
     """The text of a run's query cannot be read: the data is missing or invalid."""
+
+
+class NoItemsError(LookupError):
+    """The run has no such item list: it is a single run, or it does not have the seed."""
+
+
+class ItemNotFoundError(LookupError):
+    """The run has no such (query, seed) pair, or the pair has no result yet."""
 
 
 def find_run_dir(runs_dir: Path, run_id: str) -> Path:
@@ -123,17 +151,19 @@ def _total_ms(calls: list[LlmCallEvent]) -> float | None:
     return sum(reported) if reported else None
 
 
-def _item(run_dir: Path, manifest: RunManifest) -> ItemDetail | None:
-    """The one pair of a single run, or None until it has its ``query_result``."""
-    query_id, seed = manifest.run_start.query_ids[0], manifest.run_start.seeds[0]
+def _events(run_dir: Path, manifest: RunManifest) -> Iterator[Event]:
+    """The run's events, by D7's reader rule for the API: strict for a succeeded run, and
+    skipping a half-written last line for any other."""
+    return read_events(run_dir / EVENTS_FILE, tolerate_partial_tail=manifest.status != "succeeded")
+
+
+def load_item(run_dir: Path, manifest: RunManifest, query_id: str, seed: int) -> ItemDetail | None:
+    """One (query, seed) pair of a run, or None until it has its ``query_result``."""
     pair = (query_id, seed)
     view = RunLogView()
     calls: list[LlmCallEvent] = []
     evaluated: EvalEvent | None = None
-    events = read_events(
-        run_dir / EVENTS_FILE, tolerate_partial_tail=manifest.status != "succeeded"
-    )
-    for event in events:
+    for event in _events(run_dir, manifest):
         if isinstance(event, LlmCallEvent):
             if event.role != WARMUP_ROLE and (event.query_id, event.seed) == pair:
                 calls.append(event)
@@ -215,7 +245,7 @@ def run_detail(run_dir: Path, manifest: RunManifest) -> RunDetail:
         model=ModelRef(tag=start.model.tag, digest=start.model.digest),
         prompt_version=start.prompt_version,
         error=error_text(manifest),
-        item=_item(run_dir, manifest) if single else None,
+        item=load_item(run_dir, manifest, start.query_ids[0], start.seeds[0]) if single else None,
         summary=None if single else _summary(run_dir, manifest),
     )
 
@@ -224,3 +254,132 @@ def load_run_detail(runs_dir: Path, run_id: str) -> RunDetail:
     """``RunDetail`` of ``runs_dir/<run_id>``; ``RunNotFoundError`` if there is no such run."""
     run_dir = find_run_dir(runs_dir, run_id)
     return run_detail(run_dir, read_manifest(run_dir))
+
+
+# --- history (F3) --------------------------------------------------------------------------------
+
+
+def _verdicts(run_dir: Path, manifest: RunManifest) -> dict[tuple[str, int], EvalEvent]:
+    """The last ``eval`` of every pair that has its ``query_result``, so that a pair counts as
+    finished here exactly when ``load_item`` returns it."""
+    evals: dict[tuple[str, int], EvalEvent] = {}
+    finished: set[tuple[str, int]] = set()
+    for event in _events(run_dir, manifest):
+        if isinstance(event, EvalEvent):
+            evals[(event.query_id, event.seed)] = event
+        elif isinstance(event, QueryResultEvent):
+            finished.add((event.query_id, event.seed))
+    return {pair: event for pair, event in evals.items() if pair in finished}
+
+
+def _headline(run_dir: Path) -> RunHeadline | None:
+    path = run_dir / METRICS_FILE
+    if not path.is_file():
+        return None
+    metrics = Metrics.model_validate_json(path.read_bytes()).metrics
+    return RunHeadline(
+        final_pass_rate_mean=metrics["Final Pass Rate"].mean,
+        delivery_rate_mean=metrics["Delivery Rate"].mean,
+    )
+
+
+def run_summary(run_dir: Path, manifest: RunManifest) -> RunSummary:
+    """One row of the history. What cannot be read is null and logged; it never raises for a
+    corrupt log or an invalid ``metrics.json``."""
+    start = manifest.run_start
+    single = start.kind == "single"
+    verdict: EvalEvent | None = None
+    headline: RunHeadline | None = None
+    try:
+        if single:
+            verdict = _verdicts(run_dir, manifest).get((start.query_ids[0], start.seeds[0]))
+        else:
+            headline = _headline(run_dir)
+    except (RunLogError, OSError, ValueError, KeyError) as exc:
+        logger.warning("run %s is listed without its result: %s", run_dir.name, exc)
+    return RunSummary(
+        run_id=run_dir.name,
+        kind=start.kind,
+        status=manifest.status,
+        created_at=manifest.created_at,
+        query_id=start.query_ids[0] if single else None,
+        seed=start.seeds[0] if single else None,
+        final_pass=None if verdict is None else verdict.final_pass,
+        delivered=None if verdict is None else verdict.delivered,
+        headline=headline,
+    )
+
+
+def _is_run_id(name: str) -> bool:
+    try:
+        validate_run_id(name)
+    except ValueError:
+        return False
+    return True
+
+
+def list_runs(runs_dir: Path, limit: int, before: str | None = None) -> RunList:
+    """At most ``limit`` runs, newest first, all of them older than ``before`` (a run id, which
+    need not exist). Only the manifests of the page are read; a directory without a readable
+    manifest is not a run and is skipped."""
+    if not runs_dir.is_dir():
+        return RunList(items=[], next_before=None)
+    run_ids = sorted(
+        (
+            path.parent.name
+            for path in runs_dir.glob(f"*/{MANIFEST_FILE}")
+            if _is_run_id(path.parent.name)
+        ),
+        reverse=True,
+    )
+    items: list[RunSummary] = []
+    for run_id in run_ids:
+        if before is not None and run_id >= before:
+            continue
+        try:
+            manifest = read_manifest(runs_dir / run_id)
+        except (OSError, ValueError):
+            continue
+        if len(items) == limit:
+            return RunList(items=items, next_before=items[-1].run_id)
+        items.append(run_summary(runs_dir / run_id, manifest))
+    return RunList(items=items, next_before=None)
+
+
+def list_items(runs_dir: Path, run_id: str, seed: int) -> ItemList:
+    """The finished pairs of ``seed`` in a batch run, in the run's query order."""
+    run_dir = find_run_dir(runs_dir, run_id)
+    manifest = read_manifest(run_dir)
+    start = manifest.run_start
+    if start.kind != "batch":
+        raise NoItemsError(f"run {run_id} is a single run and has no item list")
+    if seed not in start.seeds:
+        raise NoItemsError(f"run {run_id} has no seed {seed}")
+    verdicts = _verdicts(run_dir, manifest)
+    return ItemList(
+        items=[
+            ItemSummary(
+                query_id=query_id,
+                seed=seed,
+                delivered=verdict.delivered,
+                final_pass=verdict.final_pass,
+                commonsense_pass=verdict.commonsense_pass,
+                hard_pass=verdict.hard_pass,
+            )
+            for query_id in start.query_ids
+            if (verdict := verdicts.get((query_id, seed))) is not None
+        ]
+    )
+
+
+def load_item_detail(runs_dir: Path, run_id: str, query_id: str, seed: int) -> ItemDetail:
+    """One pair of a run of either kind, as ``RunDetail.item`` is built for a single run."""
+    run_dir = find_run_dir(runs_dir, run_id)
+    manifest = read_manifest(run_dir)
+    start = manifest.run_start
+    if query_id not in start.query_ids or seed not in start.seeds:
+        raise ItemNotFoundError(f"run {run_id} has no item ({query_id!r}, {seed})")
+    item = load_item(run_dir, manifest, query_id, seed)
+    if item is None:
+        raise ItemNotFoundError(f"item ({query_id!r}, {seed}) of run {run_id} has no result yet")
+    return item

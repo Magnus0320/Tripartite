@@ -192,3 +192,55 @@ class RunDetail(_Response):
     error: str | None
     item: ItemDetail | None
     summary: BatchSummary | None
+
+
+# --- history (F3) --------------------------------------------------------------------------------
+
+
+class RunHeadline(_Response):
+    """The two headline means of a scored batch run, as rates in [0, 1]."""
+
+    final_pass_rate_mean: float
+    delivery_rate_mean: float
+
+
+class RunSummary(_Response):
+    """One run in the history list. ``query_id`` and ``seed`` are set for a single run, and
+    ``delivered`` and ``final_pass`` once its pair is done; ``headline`` is set for a batch run
+    once it is scored. Everything that does not apply, or is not known yet, is null."""
+
+    run_id: str
+    kind: RunKind
+    status: RunStatus
+    created_at: datetime
+    query_id: str | None
+    seed: int | None
+    final_pass: bool | None
+    delivered: bool | None
+    headline: RunHeadline | None
+
+
+class RunList(_Response):
+    """The response of GET /api/runs: one page of runs, newest first. ``next_before`` is the
+    ``before`` of the next page, or null when this page is the last."""
+
+    items: list[RunSummary]
+    next_before: str | None
+
+
+class ItemSummary(_Response):
+    """One finished (query, seed) pair of a batch run: the evaluator's verdict."""
+
+    query_id: str
+    seed: int
+    delivered: bool
+    final_pass: bool
+    commonsense_pass: bool
+    hard_pass: bool
+
+
+class ItemList(_Response):
+    """The response of GET /api/runs/{run_id}/items: the finished pairs of one seed, in the
+    run's query order."""
+
+    items: list[ItemSummary]
