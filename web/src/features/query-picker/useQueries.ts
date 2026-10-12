@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { ApiError, fetchQueries, type QueryItem } from "../../api/client";
+import { fetchQueries, toApiError, type ApiError, type QueryItem } from "../../api/client";
 
 export type QueriesState =
   | { status: "loading" }
@@ -22,10 +22,7 @@ export function useQueries(): { state: QueriesState; reload: () => void } {
         if (controller.signal.aborted) {
           return;
         }
-        setState({
-          status: "error",
-          error: error instanceof ApiError ? error : new ApiError("network"),
-        });
+        setState({ status: "error", error: toApiError(error) });
       },
     );
     return () => {
